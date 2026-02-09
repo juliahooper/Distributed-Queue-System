@@ -6,6 +6,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/distributed-queue-system/broker-replication/internal/service"
@@ -24,11 +25,15 @@ type ConsumeResponse struct {
 	Body  []byte `json:"body"`
 }
 
+// AckRequest is the JSON body for POST /ack.
+type AckRequest struct {
+	ID string `json:"id"`
+}
+
 // Server is the HTTP server that exposes the broker API.
 // ASSIGNED TO: ENGINEER A
 type Server struct {
 	broker service.Broker
-	// TODO: optional config (addr, timeouts, etc.)
 }
 
 // NewServer creates an API server that uses the given broker service.
@@ -38,37 +43,93 @@ func NewServer(broker service.Broker) *Server {
 
 // Run starts the HTTP server and blocks until it exits.
 func (s *Server) Run(addr string) error {
-	// TODO: Register routes (POST /publish, GET /consume, optionally POST /ack).
-	// TODO: Call http.ListenAndServe(addr, handler).
-	_ = addr
-	return nil
+	mux := http.NewServeMux()
+	mux.HandleFunc("/publish", s.handlePublish)
+	mux.HandleFunc("/consume", s.handleConsume)
+	mux.HandleFunc("/ack", s.handleAck)
+	return http.ListenAndServe(addr, mux)
 }
 
 // handlePublish handles POST /publish.
 func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
-	// TODO: Ensure method is POST. Decode JSON body into PublishRequest.
-	// TODO: Call s.broker.Publish(r.Context(), req.Topic, req.Body).
-	// TODO: Return 201 on success, 400 on bad request, 500 on server error.
-	_ = w
-	_ = r
-	return
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req PublishRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request: invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Topic == "" {
+		http.Error(w, "bad request: topic required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.broker.Publish(r.Context(), req.Topic, req.Body); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
 }
 
 // handleConsume handles GET /consume.
 func (s *Server) handleConsume(w http.ResponseWriter, r *http.Request) {
-	// TODO: Parse query (e.g. ?topic=foo). Call s.broker.Consume(r.Context(), topic).
-	// TODO: If message returned, encode as ConsumeResponse and write 200.
-	// TODO: If no message, return 204 or 404 as per spec.
-	_ = w
-	_ = r
-	return
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	topic := r.URL.Query().Get("topic")
+	if topic == "" {
+		http.Error(w, "bad request: topic query required", http.StatusBadRequest)
+		return
+	}
+
+	msg, err := s.broker.Consume(r.Context(), topic)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if msg == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(ConsumeResponse{
+		ID:    msg.ID,
+		Topic: msg.Topic,
+		Body:  msg.Body,
+	})
 }
 
 // handleAck handles POST /ack (optional; for client acknowledgement).
 func (s *Server) handleAck(w http.ResponseWriter, r *http.Request) {
-	// TODO: Decode JSON body (e.g. {"id": "message-id"}). Call s.broker.Ack(r.Context(), id).
-	// TODO: Return 200 on success, 400/404/500 as appropriate.
-	_ = w
-	_ = r
-	return
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request: invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.ID == "" {
+		http.Error(w, "bad request: id required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.broker.Ack(r.Context(), req.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
