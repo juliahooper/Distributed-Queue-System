@@ -66,6 +66,33 @@ You’re the glue: API and queue stay decoupled; you orchestrate who gets what a
 
 ---
 
+## Client Producer (Prototype)
+
+There is a **producer client** in `client/` that applications can use to send messages. It is wired to a pluggable storage interface so we can later hook it up to the real log core / broker.
+
+- **Files**
+  - `client/producer.go` – `Producer` interface + concrete implementation using retries.
+  - `client/message.go` – message framing: `[length][payload]` with JSON payload `{key,value}`.
+  - `client/retry.go` – `RetryPolicy` + `withRetry` helper (simple exponential backoff).
+  - `client/storage_stub.go` – in-memory `StubStorageClient` that assigns monotonically increasing offsets.
+  - `cmd/producer_example/main.go` – small demo that constructs a producer and sends one message.
+
+- **Storage integration**
+  - `StorageClient` interface defines `Append(ctx, topic, data) (offset, err)` and is the only dependency on the future log core.
+  - `StubStorageClient` is **temporary**; it does not talk to the broker yet and is clearly marked with `// TODO(team1): replace with real log core append`.
+
+- **Running the example**
+
+From the `broker-replication` directory:
+
+```bash
+go run ./cmd/producer_example
+```
+
+This will construct a stub storage client, send a single message on `example-topic`, and log the returned offset. Once the real append/log-core implementation exists, we can swap `StubStorageClient` for a concrete adapter without changing the producer API.
+
+---
+
 ## TL;DR
 
 | Engineer | File | Job |
