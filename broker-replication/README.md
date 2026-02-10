@@ -93,6 +93,41 @@ This will construct a stub storage client, send a single message on `example-top
 
 ---
 
+## How to run a quick demo today
+
+Right now the **storage/log core and full broker service logic are not implemented yet**, so the HTTP broker process (`cmd/broker`) is still a stub. You can still demo what exists using the producer client and its tests.
+
+- **1. Run producer/client tests**
+
+From the `broker-replication` directory:
+
+```bash
+go test ./client
+```
+
+This runs:
+
+- Serialization tests for the `[length][payload]` framing and JSON `{key,value}` payload.
+- Retry behavior tests using a flaky in-memory storage implementation.
+
+- **2. Run the producer example (stub storage)**
+
+Also from the `broker-replication` directory:
+
+```bash
+go run ./cmd/producer_example
+```
+
+This:
+
+- Creates a `StubStorageClient` (no real broker/storage yet).
+- Constructs a `Producer` with a default retry policy.
+- Produces a single message to topic `example-topic` and logs the returned offset.
+
+Use this as your **demo story** until the real storage system and broker wiring are implemented: “We already have a reusable producer client with framing and retries; next we’ll plug it into the real append/log-core path and HTTP broker.”
+
+---
+
 ## TL;DR
 
 | Engineer | File | Job |
