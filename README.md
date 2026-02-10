@@ -2,7 +2,7 @@
 
 **Team 1 · Pull-based queue · Go**
 
-This is a **skeleton only**—no real logic, just packages, structs, interfaces, and stubs. Had an AI whip it up so the three of us can implement in parallel without stepping on each other’s toes.
+This is a **skeleton only**—no real logic, just packages, structs, interfaces, and stubs.
 
 ---
 
@@ -124,8 +124,6 @@ This:
 - Constructs a `Producer` with a default retry policy.
 - Produces a single message to topic `example-topic` and logs the returned offset.
 
-Use this as your **demo story** until the real storage system and broker wiring are implemented: “We already have a reusable producer client with framing and retries; next we’ll plug it into the real append/log-core path and HTTP broker.”
-
 ---
 
 ## TL;DR
@@ -136,4 +134,3 @@ Use this as your **demo story** until the real storage system and broker wiring 
 | **B** | `internal/queue/memory.go` | Thread-safe queue: `Enqueue` / `Dequeue` only. |
 | **C** | `internal/service/broker.go` | Pull + pending: use queue, expose `Publish` / `Consume` / `Ack` to API. |
 
-Barebones, AI-generated scaffold—fill in the rest.
