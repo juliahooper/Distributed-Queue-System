@@ -93,7 +93,7 @@ This will construct a stub storage client, send a single message on `example-top
 
 ---
 
-## How to run a quick demo today
+## How to run a demo
 
 Right now the **storage/log core and full broker service logic are not implemented yet**, so the HTTP broker process (`cmd/broker`) is still a stub. You can still demo what exists using the producer client and its tests.
 
