@@ -7,62 +7,159 @@
 package service
 
 import (
-	"context"
+    "context"
+    "crypto/rand"
+    "encoding/hex"
+    "errors"
+    "fmt"
+    "sync"
+    "time"
 
-	"github.com/distributed-queue-system/broker-replication/internal/queue"
+    "github.com/distributed-queue-system/broker-replication/internal/queue"
 )
 
 // Broker is the interface for the broker service. The API layer depends on this
 // interface so it stays decoupled from the concrete implementation.
 type Broker interface {
-	// Publish enqueues a message for the given topic.
-	Publish(ctx context.Context, topic string, body []byte) error
-	// Consume pulls one message for the topic. The message is moved to Pending
-	// until the client calls Ack. Returns error if no message available or context cancelled.
-	Consume(ctx context.Context, topic string) (*queue.Message, error)
-	// Ack acknowledges a message by ID, removing it from Pending.
-	Ack(ctx context.Context, messageID string) error
+    // Publish enqueues a message for the given topic.
+    Publish(ctx context.Context, topic string, body []byte) error
+    // Consume pulls one message for the topic. The message is moved to Pending
+    // until the client calls Ack. Returns error if no message available or context cancelled.
+    Consume(ctx context.Context, topic string) (*queue.Message, error)
+    // Ack acknowledges a message by ID, removing it from Pending.
+    Ack(ctx context.Context, messageID string) error
 }
 
 // BrokerService is the concrete broker: it uses the Queue and maintains a Pending list.
 // ASSIGNED TO: ENGINEER C
 type BrokerService struct {
-	queue   queue.Queue
-	pending map[string]queue.Message // messageID -> message, waiting for ack
-	// TODO: add mutex or sync for pending map; consider per-topic queues if needed.
+    queue      queue.Queue
+    pending    map[string]pendingEntry // messageID -> message, waiting for ack
+    mu         sync.Mutex
+    visibility time.Duration
+}
+
+type pendingEntry struct {
+    msg    queue.Message
+    expiry time.Time
 }
 
 // NewBrokerService constructs a broker that uses the given queue.
 func NewBrokerService(q queue.Queue) *BrokerService {
-	return &BrokerService{
-		queue:   q,
-		pending: make(map[string]queue.Message),
-	}
+    s := &BrokerService{
+        queue:      q,
+        pending:    make(map[string]pendingEntry),
+        visibility: 30 * time.Second,
+    }
+
+    // Start background reaper to requeue expired pending messages.
+    go s.requeueExpiredLoop()
+
+    return s
 }
 
 // Publish enqueues a message for the given topic.
 func (s *BrokerService) Publish(ctx context.Context, topic string, body []byte) error {
-	// TODO: Generate message ID (e.g. UUID). Build queue.Message, call s.queue.Enqueue.
-	_ = ctx
-	_ = topic
-	_ = body
-	return nil
+    _ = ctx
+
+    if topic == "" {
+        return errors.New("topic required")
+    }
+    if len(body) == 0 {
+        return errors.New("body required")
+    }
+
+    m := queue.Message{
+        ID:    newID(),
+        Topic: topic,
+        Body:  append([]byte(nil), body...),
+    }
+
+    s.queue.Enqueue(m)
+    return nil
 }
 
 // Consume pulls one message for the topic and moves it to Pending.
 func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Message, error) {
-	// TODO: Call s.queue.Dequeue in a loop (or single call if queue is per-topic) until
-	// a message for topic is found or queue empty. If found, add to pending, return message.
-	// If not found, return error (e.g. no message available).
-	_ = ctx
-	_ = topic
-	return nil, nil
+    if topic == "" {
+        return nil, errors.New("topic required")
+    }
+
+    // Simple approach: pull messages until we find one for the topic.
+    // Messages for other topics are re-enqueued at the back.
+    for {
+        select {
+        case <-ctx.Done():
+            return nil, ctx.Err()
+        default:
+        }
+
+        m, ok := s.queue.Dequeue()
+        if !ok {
+            return nil, errors.New("no message available")
+        }
+
+        if m.Topic != topic {
+            // Not the right topic; put it back at the end and continue.
+            s.queue.Enqueue(m)
+            // yield to avoid tight loop
+            time.Sleep(5 * time.Millisecond)
+            continue
+        }
+
+        // Lock into pending with expiry.
+        s.mu.Lock()
+        s.pending[m.ID] = pendingEntry{msg: m, expiry: time.Now().Add(s.visibility)}
+        s.mu.Unlock()
+
+        return &m, nil
+    }
 }
 
 // Ack removes the message from Pending by ID.
 func (s *BrokerService) Ack(ctx context.Context, messageID string) error {
-	// TODO: Remove messageID from s.pending. Return error if not found.
-	_ = ctx
-	_ = messageID
-	return nil
+    _ = ctx
+
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    if _, ok := s.pending[messageID]; !ok {
+        return fmt.Errorf("message %s not found or already acked", messageID)
+    }
+
+    delete(s.pending, messageID)
+    return nil
+}
+
+// requeueExpiredLoop runs in background to requeue pending messages whose
+// visibility timeout expired (i.e., consumer didn't ack in time).
+func (s *BrokerService) requeueExpiredLoop() {
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        now := time.Now()
+        var expired []queue.Message
+
+        s.mu.Lock()
+        for id, e := range s.pending {
+            if now.After(e.expiry) {
+                expired = append(expired, e.msg)
+                delete(s.pending, id)
+            }
+        }
+        s.mu.Unlock()
+
+        for _, m := range expired {
+            s.queue.Enqueue(m)
+        }
+    }
+}
+
+func newID() string {
+    b := make([]byte, 8)
+    if _, err := rand.Read(b); err != nil {
+        return fmt.Sprintf("%d", time.Now().UnixNano())
+    }
+    return hex.EncodeToString(b)
 }
