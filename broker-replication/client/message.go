@@ -43,3 +43,29 @@ func encodeMessage(key, value []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// decodeMessage performs the inverse of encodeMessage. It expects data in the
+// form:
+//   [length][jsonPayload]
+// where length is a 4-byte big-endian integer representing the number of bytes
+// in jsonPayload. It returns the decoded key and value.
+func decodeMessage(data []byte) (key, value []byte, err error) {
+	if len(data) < 4 {
+		return nil, nil, fmt.Errorf("decode message: data too short")
+	}
+
+	length := binary.BigEndian.Uint32(data[0:4])
+	if int(length) != len(data)-4 {
+		return nil, nil, fmt.Errorf("decode message: length prefix %d does not match payload size %d", length, len(data)-4)
+	}
+
+	payload := data[4:]
+
+	var msg Message
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return nil, nil, fmt.Errorf("decode message: unmarshal json: %w", err)
+	}
+
+	return msg.Key, msg.Value, nil
+}
+
+

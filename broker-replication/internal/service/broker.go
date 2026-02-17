@@ -8,6 +8,9 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 
 	"github.com/distributed-queue-system/broker-replication/internal/queue"
 )
@@ -27,42 +30,108 @@ type Broker interface {
 // BrokerService is the concrete broker: it uses the Queue and maintains a Pending list.
 // ASSIGNED TO: ENGINEER C
 type BrokerService struct {
-	queue   queue.Queue
+	queue queue.Queue
+
+	mu      sync.Mutex
 	pending map[string]queue.Message // messageID -> message, waiting for ack
-	// TODO: add mutex or sync for pending map; consider per-topic queues if needed.
 }
 
 // NewBrokerService constructs a broker that uses the given queue.
 func NewBrokerService(q queue.Queue) *BrokerService {
 	return &BrokerService{
-		queue:   q,
+		queue: q,
 		pending: make(map[string]queue.Message),
 	}
 }
 
 // Publish enqueues a message for the given topic.
 func (s *BrokerService) Publish(ctx context.Context, topic string, body []byte) error {
-	// TODO: Generate message ID (e.g. UUID). Build queue.Message, call s.queue.Enqueue.
-	_ = ctx
-	_ = topic
-	_ = body
+	if topic == "" {
+		return errors.New("topic must not be empty")
+	}
+	if len(body) == 0 {
+		return errors.New("body must not be empty")
+	}
+
+	// Check for cancellation early.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// For the single-node prototype, we generate a simple unique ID by using
+	// the address of the message struct combined with the topic. This avoids
+	// adding external dependencies while still giving each message a distinct ID.
+	msg := queue.Message{
+		ID:    "", // filled in below
+		Topic: topic,
+		Body:  body,
+	}
+	msg.ID = fmt.Sprintf("%s-%p", topic, &msg)
+
+	s.queue.Enqueue(msg)
 	return nil
 }
 
 // Consume pulls one message for the topic and moves it to Pending.
 func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Message, error) {
-	// TODO: Call s.queue.Dequeue in a loop (or single call if queue is per-topic) until
-	// a message for topic is found or queue empty. If found, add to pending, return message.
-	// If not found, return error (e.g. no message available).
-	_ = ctx
-	_ = topic
-	return nil, nil
+	if topic == "" {
+		return nil, errors.New("topic must not be empty")
+	}
+
+	for {
+		// Respect context cancellation.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		msg, ok := s.queue.Dequeue()
+		if !ok {
+			// No messages available at all.
+			return nil, errors.New("no messages available")
+		}
+
+		// If this message is for a different topic, skip it for now by placing
+		// it back at the end of the queue. For the single-queue prototype this
+		// is simple and keeps behaviour correct enough for one node.
+		if msg.Topic != topic {
+			s.queue.Enqueue(msg)
+			// Continue the loop to look for a message of the requested topic.
+			continue
+		}
+
+		// Move to pending and return.
+		s.mu.Lock()
+		s.pending[msg.ID] = msg
+		s.mu.Unlock()
+
+		return &msg, nil
+	}
 }
 
 // Ack removes the message from Pending by ID.
 func (s *BrokerService) Ack(ctx context.Context, messageID string) error {
-	// TODO: Remove messageID from s.pending. Return error if not found.
-	_ = ctx
-	_ = messageID
+	if messageID == "" {
+		return errors.New("message ID must not be empty")
+	}
+
+	// Respect context cancellation.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.pending[messageID]; !ok {
+		return errors.New("message not found in pending")
+	}
+
+	delete(s.pending, messageID)
 	return nil
 }
