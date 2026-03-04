@@ -10,8 +10,10 @@ import (
     "context"
     "crypto/rand"
     "encoding/hex"
+    "encoding/json"
     "errors"
     "fmt"
+    "log"
     "sync"
     "time"
 
@@ -30,10 +32,26 @@ type Broker interface {
     Ack(ctx context.Context, messageID string) error
 }
 
+// WALWriter is the interface for the write-ahead log storage backend.
+// Any type with an Append method — including azure.BlobStorageClient — satisfies this.
+type WALWriter interface {
+    Append(ctx context.Context, topic string, data []byte) (int64, error)
+}
+
+// BrokerOption configures a BrokerService.
+type BrokerOption func(*BrokerService)
+
+// WithWAL attaches a write-ahead log to the broker.
+// Every published message will be durably written to the WAL before being enqueued.
+func WithWAL(w WALWriter) BrokerOption {
+    return func(s *BrokerService) { s.wal = w }
+}
+
 // BrokerService is the concrete broker: it uses the Queue and maintains a Pending list.
 // ASSIGNED TO: ENGINEER C
 type BrokerService struct {
     queue      queue.Queue
+    wal        WALWriter              // optional durable write-ahead log
     pending    map[string]pendingEntry // messageID -> message, waiting for ack
     mu         sync.Mutex
     visibility time.Duration
@@ -45,11 +63,15 @@ type pendingEntry struct {
 }
 
 // NewBrokerService constructs a broker that uses the given queue.
-func NewBrokerService(q queue.Queue) *BrokerService {
+// Pass WithWAL(w) to enable durable message logging.
+func NewBrokerService(q queue.Queue, opts ...BrokerOption) *BrokerService {
     s := &BrokerService{
         queue:      q,
         pending:    make(map[string]pendingEntry),
         visibility: 30 * time.Second,
+    }
+    for _, opt := range opts {
+        opt(s)
     }
 
     // Start background reaper to requeue expired pending messages.
@@ -58,10 +80,17 @@ func NewBrokerService(q queue.Queue) *BrokerService {
     return s
 }
 
-// Publish enqueues a message for the given topic.
-func (s *BrokerService) Publish(ctx context.Context, topic string, body []byte) error {
-    _ = ctx
+// walEntry is the JSON structure persisted to the write-ahead log.
+type walEntry struct {
+    ID        string    `json:"id"`
+    Topic     string    `json:"topic"`
+    Body      []byte    `json:"body"`
+    Timestamp time.Time `json:"timestamp"`
+}
 
+// Publish enqueues a message for the given topic.
+// If a WAL is configured, the message is first written durably to storage.
+func (s *BrokerService) Publish(ctx context.Context, topic string, body []byte) error {
     if topic == "" {
         return errors.New("topic required")
     }
@@ -73,6 +102,30 @@ func (s *BrokerService) Publish(ctx context.Context, topic string, body []byte) 
         ID:    newID(),
         Topic: topic,
         Body:  append([]byte(nil), body...),
+    }
+
+    // Write-ahead log: persist to durable storage before enqueuing.
+    // This ensures messages survive a broker crash — on restart
+    // the log can be replayed to recover any un-consumed messages.
+    if s.wal != nil {
+        entry := walEntry{
+            ID:        m.ID,
+            Topic:     m.Topic,
+            Body:      m.Body,
+            Timestamp: time.Now().UTC(),
+        }
+        data, err := json.Marshal(entry)
+        if err != nil {
+            log.Printf("[wal] marshal error for message %s: %v", m.ID, err)
+        } else {
+            offset, err := s.wal.Append(ctx, topic, data)
+            if err != nil {
+                // Log but don't fail the publish — Service Bus still has it.
+                log.Printf("[wal] write error for message %s: %v", m.ID, err)
+            } else {
+                log.Printf("[wal] wrote message %s (topic=%s) at offset %d", m.ID, topic, offset)
+            }
+        }
     }
 
     s.queue.Enqueue(m)

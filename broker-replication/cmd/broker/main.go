@@ -1,9 +1,10 @@
 // Package main is the entry point for the broker process.
 // Supports two modes:
 //   - Local mode (default): in-memory queue, no Azure dependencies
-//   - Azure mode: set AZURE_SERVICEBUS_CONNECTION_STRING to use Azure Service Bus
+//   - Azure mode: set AZURE_SERVICEBUS_CONNECTION_STRING for Service Bus queue,
+//     set AZURE_STORAGE_CONNECTION_STRING to also enable durable WAL to Blob Storage.
 //
-// Wiring: queue -> service -> api -> Run.
+// Wiring: queue -> service (+ optional WAL) -> api -> Run.
 
 package main
 
@@ -28,12 +29,12 @@ func main() {
 
 	cfg, _ := azure.LoadConfigFromEnv()
 
+	// ── Queue backend ────────────────────────────────────────────────────
 	var q queue.Queue
-	var cleanup func()
+	var queueCleanup func()
 
 	if cfg.HasServiceBus() {
-		// Azure mode: use Azure Service Bus as the queue backend.
-		log.Println("mode: Azure Service Bus")
+		log.Println("queue backend: Azure Service Bus")
 		sbQueue, err := azure.NewServiceBusQueue(
 			cfg.ServiceBusConnectionString,
 			cfg.ServiceBusQueueName,
@@ -42,19 +43,36 @@ func main() {
 			log.Fatalf("failed to create Service Bus queue: %v", err)
 		}
 		q = sbQueue
-		cleanup = func() {
+		queueCleanup = func() {
 			if err := sbQueue.Close(context.Background()); err != nil {
 				log.Printf("service bus cleanup error: %v", err)
 			}
 		}
 	} else {
-		// Local mode: in-memory queue.
-		log.Println("mode: in-memory (local)")
+		log.Println("queue backend: in-memory (local)")
 		q = queue.NewMemoryQueue()
-		cleanup = func() {}
+		queueCleanup = func() {}
 	}
 
-	broker := service.NewBrokerService(q)
+	// ── WAL (write-ahead log) ────────────────────────────────────────────
+	var brokerOpts []service.BrokerOption
+
+	if cfg.HasBlobStorage() {
+		log.Println("WAL backend: Azure Blob Storage")
+		walClient, err := azure.NewBlobStorageClient(
+			cfg.StorageConnectionString,
+			cfg.StorageContainerName,
+		)
+		if err != nil {
+			log.Fatalf("failed to create Blob Storage WAL client: %v", err)
+		}
+		brokerOpts = append(brokerOpts, service.WithWAL(walClient))
+	} else {
+		log.Println("WAL backend: disabled (no AZURE_STORAGE_CONNECTION_STRING set)")
+	}
+
+	// ── Wire broker + API ────────────────────────────────────────────────
+	broker := service.NewBrokerService(q, brokerOpts...)
 	srv := api.NewServer(broker)
 
 	// Graceful shutdown on SIGINT/SIGTERM.
@@ -63,7 +81,7 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-sigCh
 		log.Printf("received %s, shutting down...", sig)
-		cleanup()
+		queueCleanup()
 		os.Exit(0)
 	}()
 
@@ -72,3 +90,4 @@ func main() {
 		log.Fatalf("broker exited: %v", err)
 	}
 }
+
