@@ -85,8 +85,10 @@ func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Messa
         return nil, errors.New("topic required")
     }
 
-    // Simple approach: pull messages until we find one for the topic.
-    // Messages for other topics are re-enqueued at the back.
+    // Loop until we find a matching message or the context deadline is hit.
+    // - If Dequeue returns false (queue transiently empty), we sleep and retry.
+    //   This makes Consume work correctly against both in-memory and Service Bus.
+    // - If a message is for a different topic, re-enqueue it and continue.
     for {
         select {
         case <-ctx.Done():
@@ -96,15 +98,24 @@ func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Messa
 
         m, ok := s.queue.Dequeue()
         if !ok {
-            return nil, errors.New("no message available")
+            // Queue is empty right now — wait a bit and try again.
+            select {
+            case <-ctx.Done():
+                return nil, errors.New("no message available")
+            case <-time.After(200 * time.Millisecond):
+                continue
+            }
         }
 
         if m.Topic != topic {
             // Not the right topic; put it back at the end and continue.
             s.queue.Enqueue(m)
-            // yield to avoid tight loop
-            time.Sleep(5 * time.Millisecond)
-            continue
+            select {
+            case <-ctx.Done():
+                return nil, errors.New("no message available")
+            case <-time.After(5 * time.Millisecond):
+                continue
+            }
         }
 
         // Lock into pending with expiry.
@@ -115,6 +126,7 @@ func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Messa
         return &m, nil
     }
 }
+
 
 // Ack removes the message from Pending by ID.
 func (s *BrokerService) Ack(ctx context.Context, messageID string) error {

@@ -331,3 +331,19 @@ func (lc *LogCore) Close() error {
 	
 	return firstErr
 }
+
+// LogStorageClient adapts LogCore to satisfy the client.StorageClient interface.
+// This allows the producer client to write directly to the log core.
+type LogStorageClient struct {
+	core *LogCore
+}
+
+// NewLogStorageClient creates a StorageClient adapter backed by the given LogCore.
+func NewLogStorageClient(core *LogCore) *LogStorageClient {
+	return &LogStorageClient{core: core}
+}
+
+// Append writes data to the log core for the given topic and returns the assigned offset.
+func (l *LogStorageClient) Append(ctx context.Context, topic string, data []byte) (int64, error) {
+	return l.core.Append(ctx, topic, data)
+}
