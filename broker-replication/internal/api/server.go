@@ -41,12 +41,33 @@ func NewServer(broker service.Broker) *Server {
 	return &Server{broker: broker}
 }
 
+// Register adds broker routes to the given mux (used for testing).
+func (s *Server) Register(mux *http.ServeMux) {
+	mux.HandleFunc("/publish", cors(s.handlePublish))
+	mux.HandleFunc("/consume", cors(s.handleConsume))
+	mux.HandleFunc("/ack", cors(s.handleAck))
+}
+
+// cors wraps a handler to add CORS headers for browser clients.
+func cors(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // Run starts the HTTP server and blocks until it exits.
 func (s *Server) Run(addr string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/publish", s.handlePublish)
-	mux.HandleFunc("/consume", s.handleConsume)
-	mux.HandleFunc("/ack", s.handleAck)
+	mux.HandleFunc("/publish", cors(s.handlePublish))
+	mux.HandleFunc("/consume", cors(s.handleConsume))
+	mux.HandleFunc("/ack", cors(s.handleAck))
 	return http.ListenAndServe(addr, mux)
 }
 

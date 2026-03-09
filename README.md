@@ -1,136 +1,124 @@
-# Single-Node Message Broker (Barebones)
+# Distributed Queue System
 
-**Team 1 · Pull-based queue · Go**
+**Pull-based message broker + ER queue frontend**
 
-This is a **skeleton only**—no real logic, just packages, structs, interfaces, and stubs.
-
----
-
-## What’s in here
-
-- **API layer** – HTTP entry points (decode JSON, call service, return status codes).
-- **Queue layer** – Thread-safe in-memory queue (enqueue/dequeue).
-- **Service layer** – Glue between API and queue: pull logic + pending list until clients ack.
-
-Everything compiles; the rest is `panic("implement me")` and TODOs.
+A message broker with an ER (Emergency Room) queue demo app. Supports local in-memory mode or Azure (Service Bus + Blob Storage).
 
 ---
 
-## Engineer A — API & Networking
+## What's in here
 
-**File:** `internal/api/server.go`
-
-You own the HTTP/REST surface:
-
-- **POST /publish** – Read JSON body (`topic`, `body`), call the broker’s `Publish`, return 201/400/500.
-- **GET /consume** – Read `topic` from query, call `Consume`, return the message as JSON or 204/404.
-- **POST /ack** (optional) – Read message ID from body, call `Ack`, return 200/400/404/500.
-
-You **don’t** touch the queue or pending logic. You only decode requests, call the `service.Broker` interface, and write responses.
+| Component | Description |
+|-----------|-------------|
+| **Broker** | Generic message queue: `POST /publish`, `GET /consume`, `POST /ack` |
+| **ER Queue** | Hospital-style queue with priority (urgency 1–5), peek, and call. Powers the frontend. |
+| **Frontend** | React app: register patients, view next 5 in queue, call next |
+| **Storage** | ER queue persists to `data/er-queue.json`. Optional Azure Blob WAL for broker. |
 
 ---
 
-## Engineer B — The Data Structure
+## Quick start
 
-**File:** `internal/queue/memory.go`
-
-You own the queue storage:
-
-- **`Message`** – The thing we store (ID, Topic, Body).
-- **`Queue` interface** – `Enqueue(Message)` and `Dequeue() (Message, bool)`.
-- **`MemoryQueue`** – Mutex + slice (or list); implement `Enqueue` and `Dequeue` in a thread-safe way.
-
-No HTTP, no topics semantics, no “pending” list—just a generic FIFO that the service layer will use.
-
----
-
-## Engineer C — The Broker Service
-
-**File:** `internal/service/broker.go`
-
-You own the pull + ack logic:
-
-- **`Broker`** – Interface: `Publish`, `Consume`, `Ack`. The API talks only to this.
-- **`BrokerService`** – Holds a `queue.Queue` and a **pending** map (messages out but not yet acked).
-- **Publish** – Build a message (e.g. with an ID), call `queue.Enqueue`.
-- **Consume** – Pull from the queue (for the right topic if needed), put it in pending, return it to the client.
-- **Ack** – Remove the message from pending by ID.
-
-You’re the glue: API and queue stay decoupled; you orchestrate who gets what and what’s “in flight.”
-
----
-
-## Wiring
-
-`cmd/broker/main.go` is where we’ll wire it: `queue.NewMemoryQueue()` → `service.NewBrokerService(q)` → `api.NewServer(broker)` → `server.Run(":8080")`. Right now it’s just a stub so the tree builds.
-
----
-
-## Client Producer (Prototype)
-
-There is a **producer client** in `client/` that applications can use to send messages. It is wired to a pluggable storage interface so we can later hook it up to the real log core / broker.
-
-- **Files**
-  - `client/producer.go` – `Producer` interface + concrete implementation using retries.
-  - `client/message.go` – message framing: `[length][payload]` with JSON payload `{key,value}`.
-  - `client/retry.go` – `RetryPolicy` + `withRetry` helper (simple exponential backoff).
-  - `client/storage_stub.go` – in-memory `StubStorageClient` that assigns monotonically increasing offsets.
-  - `cmd/producer_example/main.go` – small demo that constructs a producer and sends one message.
-
-- **Storage integration**
-  - `StorageClient` interface defines `Append(ctx, topic, data) (offset, err)` and is the only dependency on the future log core.
-  - `StubStorageClient` is **temporary**; it does not talk to the broker yet and is clearly marked with `// TODO(team1): replace with real log core append`.
-
-- **Running the example**
-
-From the `broker-replication` directory:
+### 1. Run the broker
 
 ```bash
-go run ./cmd/producer_example
+cd broker-replication
+
+# Load .env (PowerShell)
+Get-Content .env | ForEach-Object {
+  if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+    [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim().Trim('"'), 'Process')
+  }
+}
+
+go run ./cmd/broker
 ```
 
-This will construct a stub storage client, send a single message on `example-topic`, and log the returned offset. Once the real append/log-core implementation exists, we can swap `StubStorageClient` for a concrete adapter without changing the producer API.
+Broker runs on **http://localhost:8080**.
+
+### 2. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on **http://localhost:5173**.
+
+### 3. Use the app
+
+- **Register patient** – Add patients with urgency 1–5
+- **View queue** – See next 5 patients, updates every 2 seconds
+- **Call next** – Remove the first patient from the queue
 
 ---
 
-## How to run a demo
+## Modes
 
-Right now the **storage/log core and full broker service logic are not implemented yet**, so the HTTP broker process (`cmd/broker`) is still a stub. You can still demo what exists using the producer client and its tests.
+### Local (default)
 
-- **1. Run producer/client tests**
+No env vars needed. Uses in-memory queue. ER queue persists to `data/er-queue.json`.
 
-From the `broker-replication` directory:
+### Azure
+
+Set these in `.env` (copy from `broker-replication/.env.example`):
+
+| Variable | Purpose |
+|----------|---------|
+| `AZURE_SERVICEBUS_CONNECTION_STRING` | Service Bus queue for broker |
+| `AZURE_SERVICEBUS_QUEUE_NAME` | Queue name (default: `broker-queue`) |
+| `AZURE_STORAGE_CONNECTION_STRING` | Blob Storage for broker WAL |
+| `AZURE_STORAGE_CONTAINER_NAME` | Container name (default: `broker-logs`) |
+| `BROKER_ADDR` | Listen address (default: `:8080`) |
+
+---
+
+## API
+
+### Broker (generic queue)
+
+- `POST /publish` – `{ "topic": "...", "body": "<base64>" }`
+- `GET /consume?topic=...` – Returns one message or 404
+- `POST /ack` – `{ "id": "..." }`
+
+### ER Queue (frontend)
+
+- `POST /er/register` – `{ "urgency": 1-5 }` → `{ "id", "patientId" }`
+- `GET /er/next?limit=5` – Peek next N patients
+- `POST /er/call` – `{ "id": "..." }` – Remove patient
+
+---
+
+## Project structure
+
+```
+broker-replication/     # Go backend
+├── cmd/broker/          # Main entry point
+├── internal/
+│   ├── api/             # Broker HTTP handlers
+│   ├── azure/           # Service Bus + Blob Storage
+│   ├── er/              # ER queue + persistence
+│   ├── queue/           # Queue interface + memory impl
+│   └── service/         # Broker service
+├── client/              # Producer client (standalone)
+└── .env.example
+
+frontend/                # React + Vite
+├── src/
+│   ├── api.js           # ER API client
+│   └── views/           # Reception, Dashboard
+└── vite.config.js
+```
+
+---
+
+## Other commands
 
 ```bash
+# Producer example (writes to local log)
+go run ./cmd/producer_with_logcore
+
+# Client tests
 go test ./client
 ```
-
-This runs:
-
-- Serialization tests for the `[length][payload]` framing and JSON `{key,value}` payload.
-- Retry behavior tests using a flaky in-memory storage implementation.
-
-- **2. Run the producer example (stub storage)**
-
-Also from the `broker-replication` directory:
-
-```bash
-go run ./cmd/producer_example
-```
-
-This:
-
-- Creates a `StubStorageClient` (no real broker/storage yet).
-- Constructs a `Producer` with a default retry policy.
-- Produces a single message to topic `example-topic` and logs the returned offset.
-
----
-
-## TL;DR
-
-| Engineer | File | Job |
-|----------|------|-----|
-| **A** | `internal/api/server.go` | HTTP: decode JSON, call broker, return status codes. |
-| **B** | `internal/queue/memory.go` | Thread-safe queue: `Enqueue` / `Dequeue` only. |
-| **C** | `internal/service/broker.go` | Pull + pending: use queue, expose `Publish` / `Consume` / `Ack` to API. |
-
