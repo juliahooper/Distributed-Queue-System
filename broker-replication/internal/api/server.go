@@ -41,12 +41,17 @@ func NewServer(broker service.Broker) *Server {
 	return &Server{broker: broker}
 }
 
-// Run starts the HTTP server and blocks until it exits.
-func (s *Server) Run(addr string) error {
-	mux := http.NewServeMux()
+// Register adds broker routes to the given mux.
+func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/publish", s.handlePublish)
 	mux.HandleFunc("/consume", s.handleConsume)
 	mux.HandleFunc("/ack", s.handleAck)
+}
+
+// Run starts the HTTP server and blocks until it exits.
+func (s *Server) Run(addr string) error {
+	mux := http.NewServeMux()
+	s.Register(mux)
 	return http.ListenAndServe(addr, mux)
 }
 
