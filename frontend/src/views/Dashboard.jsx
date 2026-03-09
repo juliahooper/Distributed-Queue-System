@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getNext, callPatient } from '../api'
 
-const POLL_INTERVAL_MS = 2500
+const POLL_INTERVAL_MS = 2000
+const QUEUE_LIMIT = 5
 
 export default function Dashboard() {
   const [queue, setQueue] = useState([])
   const [error, setError] = useState(null)
   const [calling, setCalling] = useState(false)
 
-  const fetchNext = useCallback(async () => {
+  const fetchQueue = useCallback(async () => {
     try {
-      const res = await getNext(6)
+      const res = await getNext(QUEUE_LIMIT)
       setQueue(res?.queue ?? [])
       setError(null)
     } catch (err) {
@@ -19,10 +20,10 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
-    fetchNext()
-    const id = setInterval(fetchNext, POLL_INTERVAL_MS)
+    fetchQueue()
+    const id = setInterval(fetchQueue, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [fetchNext])
+  }, [fetchQueue])
 
   async function handleCallNext() {
     const first = queue[0]
@@ -30,7 +31,8 @@ export default function Dashboard() {
     setCalling(true)
     try {
       await callPatient(first.id)
-      await fetchNext()
+      await fetchQueue()
+      setError(null)
     } catch (err) {
       setError(err.message || 'Failed to call patient.')
     } finally {
@@ -39,7 +41,7 @@ export default function Dashboard() {
   }
 
   const nextEntry = queue[0]
-  const upNext = queue.slice(1, 6)
+  const upNext = queue.slice(1, QUEUE_LIMIT)
 
   return (
     <div style={{ maxWidth: 560 }}>
@@ -93,11 +95,21 @@ export default function Dashboard() {
         background: '#1e293b',
         border: '1px solid #334155',
       }}>
-        <h2 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', color: '#94a3b8' }}>Up next</h2>
+        <h2 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', color: '#94a3b8' }}>
+          Up next
+        </h2>
         {upNext.length > 0 ? (
           <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
             {upNext.map((entry, i) => (
-              <li key={entry.id} style={{ marginBottom: '0.25rem' }}>
+              <li
+                key={entry.id}
+                style={{
+                  marginBottom: '0.5rem',
+                  padding: '0.35rem 0',
+                  listStyle: 'decimal',
+                  transition: 'all 0.2s ease',
+                }}
+              >
                 {entry.patientId}
                 <span style={{ marginLeft: '0.5rem', color: '#94a3b8' }}>
                   (urgency {entry.urgency})
@@ -109,8 +121,9 @@ export default function Dashboard() {
           <p style={{ margin: 0, color: '#64748b' }}>No further patients in queue.</p>
         )}
       </section>
+
       <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#64748b' }}>
-        List updates every {POLL_INTERVAL_MS / 1000} seconds.
+        Updates every {POLL_INTERVAL_MS / 1000} seconds. Open another tab to register patients and watch the queue change.
       </p>
     </div>
   )

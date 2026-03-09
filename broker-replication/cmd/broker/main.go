@@ -4,6 +4,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/distributed-queue-system/broker-replication/internal/api"
@@ -17,7 +18,10 @@ func main() {
 	broker := service.NewBrokerService(q)
 	apiServer := api.NewServer(broker)
 
-	erQueue := er.NewQueue()
+	erQueue, err := er.LoadQueue("")
+	if err != nil {
+		log.Fatalf("load ER queue: %v", err)
+	}
 	erHandlers := er.NewHandlers(erQueue)
 
 	mux := http.NewServeMux()

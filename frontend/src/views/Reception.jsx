@@ -9,8 +9,8 @@ export default function Reception() {
     e.preventDefault()
     setStatus(null)
     try {
-      const res = await registerPatient(urgency)
-      setStatus({ type: 'success', message: `Patient ${res.patientId} registered.` })
+      const { patientId } = await registerPatient(urgency)
+      setStatus({ type: 'success', message: `Patient ${patientId} registered.` })
     } catch (err) {
       setStatus({ type: 'error', message: err.message || 'Failed to register.' })
     }
