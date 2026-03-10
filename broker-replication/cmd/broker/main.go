@@ -4,19 +4,21 @@
 //   - Azure mode: set AZURE_SERVICEBUS_CONNECTION_STRING for Service Bus queue,
 //     set AZURE_STORAGE_CONNECTION_STRING to also enable durable WAL to Blob Storage.
 //
-// Wiring: queue -> service (+ optional WAL) -> api -> Run.
+// Also runs the ER queue (frontend) on /er/*. Wiring: queue -> service (+ optional WAL) -> api + ER handlers.
 
 package main
 
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/distributed-queue-system/broker-replication/internal/api"
 	"github.com/distributed-queue-system/broker-replication/internal/azure"
+	"github.com/distributed-queue-system/broker-replication/internal/er"
 	"github.com/distributed-queue-system/broker-replication/internal/queue"
 	"github.com/distributed-queue-system/broker-replication/internal/service"
 )
@@ -73,7 +75,20 @@ func main() {
 
 	// ── Wire broker + API ────────────────────────────────────────────────
 	broker := service.NewBrokerService(q, brokerOpts...)
-	srv := api.NewServer(broker)
+	apiServer := api.NewServer(broker)
+
+	// ── ER queue (frontend) ─────────────────────────────────────────────
+	erQueue, err := er.LoadQueue("")
+	if err != nil {
+		log.Fatalf("load ER queue: %v", err)
+	}
+	erHandlers := er.NewHandlers(erQueue)
+
+	mux := http.NewServeMux()
+	apiServer.Register(mux)
+	erHandlers.Register(mux, "/er")
+
+	handler := cors(mux)
 
 	// Graceful shutdown on SIGINT/SIGTERM.
 	go func() {
@@ -86,8 +101,21 @@ func main() {
 	}()
 
 	log.Printf("broker starting on %s", addr)
-	if err := srv.Run(addr); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("broker exited: %v", err)
 	}
 }
 
+// cors wraps h to add CORS headers for browser clients (e.g. frontend on another port).
+func cors(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
