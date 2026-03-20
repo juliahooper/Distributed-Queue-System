@@ -26,11 +26,10 @@ export default function Dashboard() {
   }, [fetchQueue])
 
   async function handleCallNext() {
-    const first = queue[0]
-    if (!first || calling) return
+    if (!queue[0] || calling) return
     setCalling(true)
     try {
-      await callPatient(first.id)
+      await callPatient()
       await fetchQueue()
       setError(null)
     } catch (err) {

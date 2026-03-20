@@ -138,6 +138,11 @@ func (q *ServiceBusQueue) Dequeue() (queue.Message, bool) {
 	}, true
 }
 
+// PeekN returns nil (not supported for Service Bus in current design).
+func (q *ServiceBusQueue) PeekN(n int) []queue.Message {
+	return nil
+}
+
 // Close releases the sender and client.
 func (q *ServiceBusQueue) Close(ctx context.Context) error {
 	var firstErr error

@@ -42,8 +42,8 @@ type Queue struct {
 	mu             sync.Mutex
 	items          []entryWithTime
 	nextID         func() string
-	nextPatientNum int    // increments for each Register; used to form patientId
-	persistPath    string // if set, queue is persisted to this file
+	nextPatientNum int       // increments for each Register; used to form patientId
+	persister      Persister // if set, queue is persisted on register/call
 }
 
 // NewQueue returns a new ER queue.
@@ -79,7 +79,7 @@ func (q *Queue) Register(ctx context.Context, urgency int) (id, patientID string
 	}
 	q.items = append(q.items, e)
 	q.applyFairnessAndSort()
-	needPersist := q.persistPath != ""
+	needPersist := q.persister != nil
 	q.mu.Unlock()
 	if needPersist {
 		_ = q.Save()
@@ -148,7 +148,7 @@ func (q *Queue) Call(ctx context.Context, id string) error {
 	for i := range q.items {
 		if q.items[i].ID == id {
 			q.items = append(q.items[:i], q.items[i+1:]...)
-			needPersist := q.persistPath != ""
+			needPersist := q.persister != nil
 			q.mu.Unlock()
 			if needPersist {
 				_ = q.Save()

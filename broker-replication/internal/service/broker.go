@@ -8,8 +8,6 @@ package service
 
 import (
     "context"
-    "crypto/rand"
-    "encoding/hex"
     "encoding/json"
     "errors"
     "fmt"
@@ -18,6 +16,7 @@ import (
     "time"
 
     "github.com/distributed-queue-system/broker-replication/internal/queue"
+    "github.com/google/uuid"
 )
 
 // Broker is the interface for the broker service. The API layer depends on this
@@ -30,6 +29,35 @@ type Broker interface {
     Consume(ctx context.Context, topic string) (*queue.Message, error)
     // Ack acknowledges a message by ID, removing it from Pending.
     Ack(ctx context.Context, messageID string) error
+    // Peek returns up to n messages for the topic without consuming. Nil if not supported.
+    Peek(ctx context.Context, topic string, n int) []*queue.Message
+}
+
+// BrokerWithAudit is an optional interface for brokers that support producer/consumer IDs for audit.
+type BrokerWithAudit interface {
+    Broker
+    PublishWithProducer(ctx context.Context, topic string, body []byte, producerID string) error
+    ConsumeWithConsumer(ctx context.Context, topic string, consumerID string) (*queue.Message, error)
+    AckWithConsumer(ctx context.Context, messageID string, consumerID string) error
+}
+
+// ActivityEntry is a single activity log entry (publish, consume, ack, requeue, dlq).
+type ActivityEntry struct {
+    EventType  string                 `json:"event_type"`
+    MessageID  string                 `json:"message_id"`
+    Topic      string                 `json:"topic"`
+    ProducerID string                 `json:"producer_id"`
+    ConsumerID string                 `json:"consumer_id"`
+    CreatedAt  time.Time              `json:"created_at"`
+    Details    map[string]interface{} `json:"details,omitempty"`
+}
+
+// BrokerExt is an optional interface for brokers with metrics, DLQ, and activity log (PostgreSQL backend).
+type BrokerExt interface {
+    GetMetrics(ctx context.Context) (map[string]interface{}, error)
+    DeadLetterCount(ctx context.Context) (int, error)
+    DeadLetterRetry(ctx context.Context) (retried, failed int, err error)
+    GetActivityLog(ctx context.Context, limit, offset int, eventType string) ([]ActivityEntry, error)
 }
 
 // WALWriter is the interface for the write-ahead log storage backend.
@@ -132,6 +160,24 @@ func (s *BrokerService) Publish(ctx context.Context, topic string, body []byte) 
     return nil
 }
 
+// PublishWithProducer delegates to Publish (producerID ignored for memory backend).
+func (s *BrokerService) PublishWithProducer(ctx context.Context, topic string, body []byte, producerID string) error {
+    _ = producerID
+    return s.Publish(ctx, topic, body)
+}
+
+// ConsumeWithConsumer delegates to Consume (consumerID ignored for memory backend).
+func (s *BrokerService) ConsumeWithConsumer(ctx context.Context, topic string, consumerID string) (*queue.Message, error) {
+    _ = consumerID
+    return s.Consume(ctx, topic)
+}
+
+// AckWithConsumer delegates to Ack (consumerID ignored for memory backend).
+func (s *BrokerService) AckWithConsumer(ctx context.Context, messageID string, consumerID string) error {
+    _ = consumerID
+    return s.Ack(ctx, messageID)
+}
+
 // Consume pulls one message for the topic and moves it to Pending.
 func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Message, error) {
     if topic == "" {
@@ -180,6 +226,28 @@ func (s *BrokerService) Consume(ctx context.Context, topic string) (*queue.Messa
     }
 }
 
+// Peek returns up to n messages for the topic without consuming.
+// Uses queue.PeekN if available; returns nil for queues that don't support it (e.g. Service Bus).
+func (s *BrokerService) Peek(ctx context.Context, topic string, n int) []*queue.Message {
+    if topic == "" || n <= 0 {
+        return nil
+    }
+    msgs := s.queue.PeekN(n * 3) // Peek extra to account for other topics
+    if len(msgs) == 0 {
+        return nil
+    }
+    var out []*queue.Message
+    for i := range msgs {
+        if msgs[i].Topic == topic {
+            m := msgs[i]
+            out = append(out, &m)
+            if len(out) >= n {
+                break
+            }
+        }
+    }
+    return out
+}
 
 // Ack removes the message from Pending by ID.
 func (s *BrokerService) Ack(ctx context.Context, messageID string) error {
@@ -222,9 +290,5 @@ func (s *BrokerService) requeueExpiredLoop() {
 }
 
 func newID() string {
-    b := make([]byte, 8)
-    if _, err := rand.Read(b); err != nil {
-        return fmt.Sprintf("%d", time.Now().UnixNano())
-    }
-    return hex.EncodeToString(b)
+    return uuid.New().String()
 }

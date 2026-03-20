@@ -254,6 +254,17 @@ func (lc *LogCore) Append(ctx context.Context, topic string, payload []byte) (in
 	return offset, nil
 }
 
+// MaxOffset returns the highest offset written for the topic, or 0 if none.
+func (lc *LogCore) MaxOffset(topic string) int64 {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	next := lc.offsets[topic]
+	if next <= 1 {
+		return 0
+	}
+	return next - 1
+}
+
 // Read reads a log entry by offset for the given topic.
 // Returns the raw payload (without header).
 func (lc *LogCore) Read(ctx context.Context, topic string, offset int64) ([]byte, error) {
