@@ -3,7 +3,10 @@
  * Uses: POST /publish, GET /peek, GET /consume, POST /ack
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+// Production: use relative URL (same origin). Dev: localhost:8080. Override with VITE_API_URL.
+const API_BASE = import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== ''
+  ? import.meta.env.VITE_API_URL
+  : (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const ER_TOPIC = 'er-queue'
 
 async function request(path, options = {}) {
