@@ -29,9 +29,13 @@ export default function Dashboard() {
     if (!queue[0] || calling) return
     setCalling(true)
     try {
-      await callPatient()
+      const called = await callPatient()
       await fetchQueue()
-      setError(null)
+      if (!called) {
+        setError('Patient already taken by another nurse.')
+      } else {
+        setError(null)
+      }
     } catch (err) {
       setError(err.message || 'Failed to call patient.')
     } finally {
