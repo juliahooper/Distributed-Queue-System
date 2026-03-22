@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getNext, callPatient } from '../api'
+import { getNext, consumeNext, ackMessage } from '../api'
 
 const POLL_INTERVAL_MS = 2000
 const QUEUE_LIMIT = 5
@@ -8,6 +8,8 @@ export default function Dashboard() {
   const [queue, setQueue] = useState([])
   const [error, setError] = useState(null)
   const [calling, setCalling] = useState(false)
+  const [currentPatient, setCurrentPatient] = useState(null)
+  const [finishing, setFinishing] = useState(false)
 
   const fetchQueue = useCallback(async () => {
     try {
@@ -26,20 +28,36 @@ export default function Dashboard() {
   }, [fetchQueue])
 
   async function handleCallNext() {
-    if (!queue[0] || calling) return
+    if (!queue[0] || calling || currentPatient) return
     setCalling(true)
     try {
-      const called = await callPatient()
+      const patient = await consumeNext()
       await fetchQueue()
-      if (!called) {
+      if (!patient) {
         setError('Patient already taken by another nurse.')
       } else {
+        setCurrentPatient(patient)
         setError(null)
       }
     } catch (err) {
       setError(err.message || 'Failed to call patient.')
     } finally {
       setCalling(false)
+    }
+  }
+
+  async function handleDone() {
+    if (!currentPatient || finishing) return
+    setFinishing(true)
+    try {
+      await ackMessage(currentPatient.id)
+      setCurrentPatient(null)
+      await fetchQueue()
+      setError(null)
+    } catch (err) {
+      setError(err.message || 'Failed to complete patient.')
+    } finally {
+      setFinishing(false)
     }
   }
 
@@ -51,6 +69,41 @@ export default function Dashboard() {
       <h1 style={{ marginTop: 0, marginBottom: '1.5rem' }}>ER Queue</h1>
       {error && (
         <p style={{ color: '#fca5a5', marginBottom: '1rem' }}>{error}</p>
+      )}
+
+      {currentPatient && (
+        <section style={{
+          marginBottom: '1.5rem',
+          padding: '1rem',
+          borderRadius: 8,
+          background: '#1e3a2f',
+          border: '1px solid #22c55e',
+        }}>
+          <h2 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: '#86efac' }}>Currently seeing</h2>
+          <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600 }}>
+            {currentPatient.patientId}
+            <span style={{ marginLeft: '0.5rem', fontWeight: 400, color: '#86efac' }}>
+              (urgency {currentPatient.urgency})
+            </span>
+          </p>
+          <button
+            onClick={handleDone}
+            disabled={finishing}
+            style={{
+              marginTop: '0.75rem',
+              padding: '0.5rem 1rem',
+              fontSize: '0.95rem',
+              border: 'none',
+              borderRadius: 6,
+              background: '#3b82f6',
+              color: '#fff',
+              cursor: finishing ? 'not-allowed' : 'pointer',
+              opacity: finishing ? 0.7 : 1,
+            }}
+          >
+            {finishing ? 'Completing…' : 'Done with patient'}
+          </button>
+        </section>
       )}
 
       <section style={{
@@ -74,7 +127,7 @@ export default function Dashboard() {
         {nextEntry && (
           <button
             onClick={handleCallNext}
-            disabled={calling}
+            disabled={calling || !!currentPatient}
             style={{
               marginTop: '0.75rem',
               padding: '0.5rem 1rem',
@@ -83,12 +136,17 @@ export default function Dashboard() {
               borderRadius: 6,
               background: '#22c55e',
               color: '#fff',
-              cursor: calling ? 'not-allowed' : 'pointer',
-              opacity: calling ? 0.7 : 1,
+              cursor: (calling || currentPatient) ? 'not-allowed' : 'pointer',
+              opacity: (calling || currentPatient) ? 0.7 : 1,
             }}
           >
             {calling ? 'Calling…' : 'Call next'}
           </button>
+        )}
+        {currentPatient && (
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+            Finish with current patient before calling next.
+          </p>
         )}
       </section>
 
@@ -103,7 +161,7 @@ export default function Dashboard() {
         </h2>
         {upNext.length > 0 ? (
           <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-            {upNext.map((entry, i) => (
+            {upNext.map((entry) => (
               <li
                 key={entry.id}
                 style={{
