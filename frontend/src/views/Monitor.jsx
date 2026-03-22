@@ -3,7 +3,24 @@ import { getMetrics, getDeadLetterCount, deadLetterRetry, getDeadLetterList, del
 
 const POLL_INTERVAL_MS = 5000
 const ACTIVITY_LIMIT = 50
-const HISTORY_SIZE = 30 // keep last 30 samples (~2.5 min at 5s interval)
+const HISTORY_SIZE = 30
+
+const card = {
+  background: '#111827',
+  borderRadius: 16,
+  padding: '1.25rem 1.5rem',
+  boxShadow: '0 0 60px rgba(220,38,38,0.35), 0 0 120px rgba(220,38,38,0.15)',
+  border: '1px solid rgba(220,38,38,0.15)',
+  marginBottom: '1.25rem',
+}
+
+const sectionLabel = {
+  fontFamily: "'Bebas Neue', sans-serif",
+  fontSize: '1.3rem',
+  letterSpacing: '0.06em',
+  color: 'rgba(255,255,255,0.7)',
+  marginBottom: '1rem',
+}
 
 export default function Monitor() {
   const [metrics, setMetrics] = useState(null)
@@ -46,43 +63,27 @@ export default function Monitor() {
     try {
       const res = await getDeadLetterCount()
       setDlqCount(res?.count ?? 0)
-    } catch {
-      setDlqCount(0)
-    }
+    } catch { setDlqCount(0) }
   }, [])
 
   const fetchDlqEntries = useCallback(async () => {
     try {
       const res = await getDeadLetterList()
       setDlqEntries(res?.entries ?? [])
-    } catch {
-      setDlqEntries([])
-    }
+    } catch { setDlqEntries([]) }
   }, [])
 
   const fetchActivityLog = useCallback(async () => {
     try {
-      const res = await getActivityLog({
-        limit: ACTIVITY_LIMIT,
-        offset: 0,
-        event_type: eventFilter || undefined,
-      })
+      const res = await getActivityLog({ limit: ACTIVITY_LIMIT, offset: 0, event_type: eventFilter || undefined })
       setActivityLog(res?.entries ?? [])
-    } catch (err) {
-      setActivityLog([])
-    }
+    } catch { setActivityLog([]) }
   }, [eventFilter])
 
   useEffect(() => {
-    fetchMetrics()
-    fetchDlqCount()
-    fetchDlqEntries()
-    fetchActivityLog()
+    fetchMetrics(); fetchDlqCount(); fetchDlqEntries(); fetchActivityLog()
     const id = setInterval(() => {
-      fetchMetrics()
-      fetchDlqCount()
-      fetchDlqEntries()
-      fetchActivityLog()
+      fetchMetrics(); fetchDlqCount(); fetchDlqEntries(); fetchActivityLog()
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
   }, [fetchMetrics, fetchDlqCount, fetchDlqEntries, fetchActivityLog])
@@ -91,63 +92,66 @@ export default function Monitor() {
     setRetrying(true)
     try {
       await deadLetterRetry()
-      await fetchDlqCount()
-      await fetchDlqEntries()
-      await fetchMetrics()
-      await fetchActivityLog()
-    } catch (err) {
-      setError(err.message || 'Retry failed')
-    } finally {
-      setRetrying(false)
-    }
+      await fetchDlqCount(); await fetchDlqEntries(); await fetchMetrics(); await fetchActivityLog()
+    } catch (err) { setError(err.message || 'Retry failed') }
+    finally { setRetrying(false) }
   }
 
   async function handleDiscard(messageID) {
     setDiscarding(messageID)
     try {
       await deleteDeadLetter(messageID)
-      await fetchDlqCount()
-      await fetchDlqEntries()
-    } catch (err) {
-      setError(err.message || 'Failed to discard message')
-    } finally {
-      setDiscarding(null)
-    }
+      await fetchDlqCount(); await fetchDlqEntries()
+    } catch (err) { setError(err.message || 'Failed to discard message') }
+    finally { setDiscarding(null) }
   }
 
-  const formatTime = (t) => {
-    if (!t) return '-'
-    const d = new Date(t)
-    return d.toLocaleString()
-  }
+  const formatTime = (t) => t ? new Date(t).toLocaleString() : '-'
 
   const decodeBody = (b64) => {
     if (!b64) return null
-    try {
-      return JSON.parse(decodeURIComponent(escape(atob(b64))))
-    } catch {
-      return null
-    }
+    try { return JSON.parse(decodeURIComponent(escape(atob(b64)))) } catch { return null }
   }
 
   const EVENT_META = {
-    publish:     { emoji: '📨', color: '#16a34a', bg: '#f0fdf4' },
-    consume:     { emoji: '👆', color: '#2563eb', bg: '#eff6ff' },
-    ack:         { emoji: '✅', color: '#0891b2', bg: '#ecfeff' },
-    requeue:     { emoji: '🔄', color: '#d97706', bg: '#fffbeb' },
-    dlq:         { emoji: '💀', color: '#dc2626', bg: '#fef2f2' },
-    dlq_retry:   { emoji: '🔁', color: '#7c3aed', bg: '#f5f3ff' },
-    dlq_deleted: { emoji: '🗑️', color: '#64748b', bg: '#f8fafc' },
+    publish:     { emoji: '📨', color: '#22c55e',  bg: '#052015' },
+    consume:     { emoji: '👆', color: '#60a5fa',  bg: '#051230' },
+    ack:         { emoji: '✅', color: '#22d3ee',  bg: '#051a20' },
+    requeue:     { emoji: '🔄', color: '#fbbf24',  bg: '#1a1200' },
+    dlq:         { emoji: '💀', color: '#f87171',  bg: '#1a0505' },
+    dlq_retry:   { emoji: '🔁', color: '#a78bfa',  bg: '#0f0a1a' },
+    dlq_deleted: { emoji: '🗑️', color: '#94a3b8', bg: '#1e293b' },
   }
+
+  const hasDlq = dlqEntries.length > 0
 
   return (
     <div style={{ maxWidth: 1000 }}>
+
       {/* Page header */}
-      <div style={{ marginBottom: '1.75rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: '#1e293b' }}>
-          📊 System Monitor
+      <div style={{
+        marginBottom: '1.75rem',
+        padding: '2rem 2.5rem 1.75rem',
+        borderRadius: 16,
+        background: 'linear-gradient(135deg, #111827 0%, #1f2937 100%)',
+        boxShadow: '0 0 60px rgba(220,38,38,0.35), 0 0 120px rgba(220,38,38,0.15)',
+      }}>
+        <h1 style={{
+          margin: 0,
+          fontSize: '2.8rem',
+          color: '#fff',
+          fontFamily: "'Bebas Neue', sans-serif",
+          letterSpacing: '0.06em',
+          textShadow: '0 0 30px rgba(255,255,255,0.25)',
+        }}>
+          System Monitor
         </h1>
-        <p style={{ margin: '0.4rem 0 0', color: '#64748b', fontSize: '0.95rem' }}>
+        <p style={{
+          margin: '0.5rem 0 0',
+          color: 'rgba(255,255,255,0.55)',
+          fontSize: '0.95rem',
+          letterSpacing: '0.02em',
+        }}>
           Live queue metrics, throughput charts, and dead letter management.
         </p>
       </div>
@@ -155,47 +159,32 @@ export default function Monitor() {
       {error && (
         <div className="card-enter" style={{
           marginBottom: '1rem', padding: '0.75rem 1rem', borderRadius: 8,
-          background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontWeight: 500,
+          background: '#1a0505', border: '1px solid #dc262655', color: '#fca5a5', fontWeight: 500,
         }}>
           ❌ {error}
         </div>
       )}
 
       {/* Metric cards */}
-      <section style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
-        gap: '1rem',
-        marginBottom: '1.5rem',
-      }}>
-        <MetricCard label="Queue Depth" value={metrics?.queue_depth ?? '-'} emoji="📋" color="#dc2626" />
-        <MetricCard label="In-Flight" value={metrics?.pending_count ?? '-'} emoji="⏳" color="#d97706" />
-        <MetricCard label="Produced" value={metrics?.messages_produced_total ?? '-'} emoji="📨" color="#16a34a" />
-        <MetricCard label="Consumed" value={metrics?.messages_consumed_total ?? '-'} emoji="✅" color="#2563eb" />
-        <MetricCard label="Dead Letter" value={dlqCount ?? metrics?.dead_letter_count ?? '-'} emoji="💀" color={dlqCount > 0 ? '#dc2626' : '#64748b'} alert={dlqCount > 0} />
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+        <MetricCard label="Queue Depth"  value={metrics?.queue_depth ?? '-'}              emoji="📋" color="#dc2626" />
+        <MetricCard label="In-Flight"    value={metrics?.pending_count ?? '-'}             emoji="⏳" color="#fbbf24" />
+        <MetricCard label="Produced"     value={metrics?.messages_produced_total ?? '-'}   emoji="📨" color="#22c55e" />
+        <MetricCard label="Consumed"     value={metrics?.messages_consumed_total ?? '-'}   emoji="✅" color="#60a5fa" />
+        <MetricCard label="Dead Letter"  value={dlqCount ?? metrics?.dead_letter_count ?? '-'} emoji="💀" color={hasDlq ? '#f87171' : '#6b7280'} alert={hasDlq} />
       </section>
 
-      {/* Charts + gauges */}
-      <section style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '1rem',
-        marginBottom: '1.5rem',
-      }}>
-        <ChartCard label="📋 Queue depth" data={metricsHistory.map(h => h.queueDepth)} color="#dc2626" fillColor="rgba(220,38,38,0.08)" />
-        <ChartCard label="⏳ In-flight (pending)" data={metricsHistory.map(h => h.pending)} color="#d97706" fillColor="rgba(217,119,6,0.08)" />
-        <ChartCard label="📨 Produced / interval" data={metricsHistory.map(h => h.producedRate)} color="#16a34a" fillColor="rgba(22,163,74,0.08)" />
-        <ChartCard label="✅ Consumed / interval" data={metricsHistory.map(h => h.consumedRate)} color="#2563eb" fillColor="rgba(37,99,235,0.08)" />
+      {/* Charts */}
+      <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+        <ChartCard label="📋 Queue depth"         data={metricsHistory.map(h => h.queueDepth)}   color="#dc2626" fillColor="rgba(220,38,38,0.15)" />
+        <ChartCard label="⏳ In-flight (pending)"  data={metricsHistory.map(h => h.pending)}      color="#fbbf24" fillColor="rgba(251,191,36,0.12)" />
+        <ChartCard label="📨 Produced / interval" data={metricsHistory.map(h => h.producedRate)} color="#22c55e" fillColor="rgba(34,197,94,0.12)" />
+        <ChartCard label="✅ Consumed / interval" data={metricsHistory.map(h => h.consumedRate)} color="#60a5fa" fillColor="rgba(96,165,250,0.12)" />
       </section>
 
       {/* Efficiency + throughput */}
       <section style={{
-        marginBottom: '1.5rem',
-        padding: '1.25rem 1.5rem',
-        borderRadius: 12,
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+        ...card,
         display: 'flex',
         alignItems: 'center',
         gap: '3rem',
@@ -212,103 +201,109 @@ export default function Monitor() {
 
       {/* Dead letter queue */}
       <section style={{
-        marginBottom: '1.5rem',
-        padding: '1.25rem 1.5rem',
-        borderRadius: 12,
-        background: '#fff',
-        border: `2px solid ${dlqEntries.length > 0 ? '#fca5a5' : '#e2e8f0'}`,
-        boxShadow: dlqEntries.length > 0 ? '0 0 20px rgba(220,38,38,0.1)' : '0 2px 12px rgba(0,0,0,0.06)',
+        ...card,
+        border: hasDlq ? '2px solid #dc262688' : '1px solid rgba(220,38,38,0.15)',
+        boxShadow: hasDlq
+          ? '0 0 60px rgba(220,38,38,0.55), 0 0 120px rgba(220,38,38,0.25)'
+          : card.boxShadow,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <div>
-            <span style={{ fontWeight: 700, fontSize: '1rem', color: dlqEntries.length > 0 ? '#dc2626' : '#374151' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <span style={{ ...sectionLabel, marginBottom: 0, color: hasDlq ? '#f87171' : 'rgba(255,255,255,0.7)' }}>
               💀 Dead Letter Queue
             </span>
-            {dlqEntries.length > 0 && (
+            {hasDlq && (
               <span style={{
-                marginLeft: '0.6rem',
-                background: '#dc2626',
-                color: '#fff',
-                borderRadius: 99,
-                padding: '0.1rem 0.55rem',
-                fontSize: '0.75rem',
-                fontWeight: 700,
+                background: '#dc2626', color: '#fff', borderRadius: 99,
+                padding: '0.1rem 0.55rem', fontSize: '0.75rem', fontWeight: 700,
               }}>
                 {dlqEntries.length}
               </span>
             )}
           </div>
-          {dlqEntries.length > 0 && (
+          {hasDlq && (
             <button
               onClick={handleRetry}
               disabled={retrying}
               style={{
-                padding: '0.45rem 1rem',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                border: 'none',
-                borderRadius: 7,
-                background: retrying ? '#e2e8f0' : 'linear-gradient(135deg, #16a34a, #15803d)',
-                color: retrying ? '#94a3b8' : '#fff',
+                padding: '0.55rem 1.1rem',
+                fontWeight: 800,
+                fontFamily: "'Bebas Neue', sans-serif",
+                fontSize: '1rem',
+                letterSpacing: '0.04em',
+                border: '1px solid #22c55e55',
+                borderRadius: 8,
+                background: retrying
+                  ? '#22c55e'
+                  : `linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.25) 100%), #22c55e`,
+                color: retrying ? '#fff' : '#1e293b',
                 cursor: retrying ? 'not-allowed' : 'pointer',
-                boxShadow: retrying ? 'none' : '0 3px 10px rgba(22,163,74,0.3)',
+                boxShadow: retrying ? '0 4px 18px #22c55e88' : '0 2px 10px #22c55e55',
+                transition: 'all 0.15s',
               }}
             >
-              {retrying ? '⏳ Retrying…' : '🔁 Retry All'}
+              {retrying ? 'Retrying…' : '🔁 Retry All'}
             </button>
           )}
         </div>
 
         {dlqEntries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#94a3b8' }}>
+          <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#6b7280' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: '0.4rem' }}>✅</div>
-            <div style={{ fontWeight: 600 }}>Dead letter queue is empty</div>
+            <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Dead letter queue is empty</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             {dlqEntries.map((e) => {
               const patient = decodeBody(typeof e.body === 'string' ? e.body : null)
+              const isDiscarding = discarding === e.message_id
               return (
                 <div key={e.message_id} className="card-enter" style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '0.75rem 1rem',
-                  borderRadius: 8,
-                  background: '#fef2f2',
-                  border: '1px solid #fecaca',
+                  padding: '0.85rem 1rem',
+                  borderRadius: 10,
+                  background: '#1a0505',
+                  border: '1px solid #dc262644',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <span style={{ fontSize: '1.4rem' }}>⚠️</span>
                     <div>
-                      <div style={{ fontWeight: 700, color: '#1e293b' }}>
+                      <div style={{ fontWeight: 700, color: '#fff', fontFamily: "'Bebas Neue', sans-serif", fontSize: '1.1rem', letterSpacing: '0.03em' }}>
                         {patient?.patientId ?? e.message_id.slice(0, 8) + '…'}
                       </div>
-                      <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.2rem', fontSize: '0.78rem', color: '#64748b', flexWrap: 'wrap' }}>
-                        {patient?.urgency && <span>Urgency {patient.urgency}</span>}
-                        <span style={{ color: '#dc2626', fontWeight: 600 }}>Failed {e.retry_count}x</span>
-                        <span>{formatTime(e.failed_at)}</span>
-                        <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{e.message_id.slice(0, 8)}…</span>
+                      <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.2rem', fontSize: '0.78rem', flexWrap: 'wrap' }}>
+                        {patient?.urgency && <span style={{ color: '#9ca3af' }}>Urgency {patient.urgency}</span>}
+                        <span style={{ color: '#f87171', fontWeight: 600 }}>Failed {e.retry_count}x</span>
+                        <span style={{ color: '#6b7280' }}>{formatTime(e.failed_at)}</span>
+                        <span style={{ fontFamily: 'monospace', color: '#4b5563' }}>{e.message_id.slice(0, 8)}…</span>
                       </div>
                     </div>
                   </div>
                   <button
                     onClick={() => handleDiscard(e.message_id)}
-                    disabled={discarding === e.message_id}
+                    disabled={isDiscarding}
                     title="Permanently discard this poison message"
                     style={{
-                      padding: '0.4rem 0.9rem',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                      border: '1px solid #fca5a5',
-                      borderRadius: 7,
-                      background: discarding === e.message_id ? '#f1f5f9' : '#fff',
-                      color: discarding === e.message_id ? '#94a3b8' : '#dc2626',
-                      cursor: discarding === e.message_id ? 'not-allowed' : 'pointer',
+                      padding: '0.5rem 1rem',
+                      fontWeight: 800,
+                      fontFamily: "'Bebas Neue', sans-serif",
+                      fontSize: '0.95rem',
+                      letterSpacing: '0.04em',
+                      border: '1px solid #dc262655',
+                      borderRadius: 8,
+                      background: isDiscarding
+                        ? '#dc2626'
+                        : `linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.25) 100%), #dc2626`,
+                      color: isDiscarding ? '#fff' : '#1e293b',
+                      cursor: isDiscarding ? 'not-allowed' : 'pointer',
+                      boxShadow: isDiscarding ? '0 4px 18px #dc262688' : '0 2px 10px #dc262655',
+                      transition: 'all 0.15s',
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {discarding === e.message_id ? '⏳ Discarding…' : '🗑️ Discard'}
+                    {isDiscarding ? 'Discarding…' : '🗑️ Discard'}
                   </button>
                 </div>
               )
@@ -318,24 +313,18 @@ export default function Monitor() {
       </section>
 
       {/* Activity log */}
-      <section style={{
-        padding: '1.25rem 1.5rem',
-        borderRadius: 12,
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
-      }}>
+      <section style={card}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <span style={{ fontWeight: 700, fontSize: '1rem', color: '#374151' }}>📜 Activity Log</span>
+          <span style={sectionLabel}>📜 Activity Log</span>
           <select
             value={eventFilter}
             onChange={(e) => setEventFilter(e.target.value)}
             style={{
               padding: '0.35rem 0.6rem',
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
+              background: '#1f2937',
+              border: '1px solid #374151',
               borderRadius: 6,
-              color: '#374151',
+              color: '#d1d5db',
               fontSize: '0.85rem',
             }}
           >
@@ -351,37 +340,42 @@ export default function Monitor() {
         </div>
         <div style={{ maxHeight: 360, overflowY: 'auto', fontSize: '0.83rem' }}>
           {activityLog.length === 0 ? (
-            <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>No activity yet.</p>
+            <p style={{ color: '#6b7280', textAlign: 'center', padding: '2rem 0' }}>No activity yet.</p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
+                <tr style={{ borderBottom: '2px solid #1f2937' }}>
                   {['Time', 'Event', 'Message ID', 'Topic', 'Producer', 'Consumer'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                    <th key={h} style={{
+                      textAlign: 'left', padding: '0.5rem 0.75rem',
+                      color: '#6b7280', fontWeight: 600, fontSize: '0.78rem',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {activityLog.map((e, i) => {
-                  const em = EVENT_META[e.event_type] ?? { emoji: '•', color: '#64748b', bg: '#f8fafc' }
+                  const em = EVENT_META[e.event_type] ?? { emoji: '•', color: '#6b7280', bg: '#1e293b' }
                   return (
-                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', whiteSpace: 'nowrap' }}>{formatTime(e.created_at)}</td>
+                    <tr key={i} style={{ borderBottom: '1px solid #1f2937' }}>
+                      <td style={{ padding: '0.5rem 0.75rem', color: '#6b7280', whiteSpace: 'nowrap' }}>{formatTime(e.created_at)}</td>
                       <td style={{ padding: '0.5rem 0.75rem' }}>
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                           padding: '0.15rem 0.5rem', borderRadius: 99,
                           background: em.bg, color: em.color, fontWeight: 600, fontSize: '0.78rem',
+                          border: `1px solid ${em.color}33`,
                         }}>
                           {em.emoji} {e.event_type}
                         </span>
                       </td>
-                      <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'monospace', color: '#94a3b8' }}>
+                      <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'monospace', color: '#4b5563' }}>
                         {e.message_id ? e.message_id.slice(0, 8) + '…' : '-'}
                       </td>
-                      <td style={{ padding: '0.5rem 0.75rem', color: '#374151' }}>{e.topic || '-'}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', color: '#374151' }}>{e.producer_id || '-'}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', color: '#374151' }}>{e.consumer_id || '-'}</td>
+                      <td style={{ padding: '0.5rem 0.75rem', color: '#9ca3af' }}>{e.topic || '-'}</td>
+                      <td style={{ padding: '0.5rem 0.75rem', color: '#9ca3af' }}>{e.producer_id || '-'}</td>
+                      <td style={{ padding: '0.5rem 0.75rem', color: '#9ca3af' }}>{e.consumer_id || '-'}</td>
                     </tr>
                   )
                 })}
@@ -391,7 +385,7 @@ export default function Monitor() {
         </div>
       </section>
 
-      <p style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
+      <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#6b7280', textAlign: 'center' }}>
         🔄 Auto-refreshes every {POLL_INTERVAL_MS / 1000}s
       </p>
     </div>
@@ -402,15 +396,23 @@ function MetricCard({ label, value, emoji, color, alert }) {
   return (
     <div style={{
       padding: '1rem 1.1rem',
-      borderRadius: 10,
-      background: '#fff',
-      border: `1px solid ${alert ? '#fca5a5' : '#e2e8f0'}`,
-      boxShadow: alert ? `0 0 14px rgba(220,38,38,0.12)` : '0 2px 8px rgba(0,0,0,0.05)',
+      borderRadius: 12,
+      background: '#111827',
+      border: `1px solid ${alert ? '#dc262655' : 'rgba(220,38,38,0.15)'}`,
+      boxShadow: alert
+        ? '0 0 60px rgba(220,38,38,0.35), 0 0 120px rgba(220,38,38,0.15)'
+        : '0 0 40px rgba(220,38,38,0.2)',
     }}>
-      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>
+      <div style={{
+        fontFamily: "'Bebas Neue', sans-serif",
+        fontSize: '0.9rem',
+        letterSpacing: '0.08em',
+        color: 'rgba(255,255,255,0.5)',
+        marginBottom: '0.4rem',
+      }}>
         {emoji} {label}
       </div>
-      <div style={{ fontSize: '1.75rem', fontWeight: 800, color }}>{value}</div>
+      <div style={{ fontSize: '1.9rem', fontWeight: 800, color, fontFamily: "'Bebas Neue', sans-serif" }}>{value}</div>
     </div>
   )
 }
@@ -439,14 +441,14 @@ function ChartCard({ label, data, color, fillColor }) {
   return (
     <div style={{
       padding: '1rem 1.1rem',
-      borderRadius: 10,
-      background: '#fff',
-      border: '1px solid #e2e8f0',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+      borderRadius: 12,
+      background: '#111827',
+      border: '1px solid rgba(220,38,38,0.15)',
+      boxShadow: '0 0 40px rgba(220,38,38,0.2)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-        <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>{label}</span>
-        <span style={{ fontSize: '0.95rem', fontWeight: 800, color }}>{latest}</span>
+        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: '0.95rem', fontWeight: 800, color, fontFamily: "'Bebas Neue', sans-serif" }}>{latest}</span>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 80, display: 'block' }}>
         {fillPath && <path d={fillPath} fill={fillColor} />}
@@ -458,7 +460,7 @@ function ChartCard({ label, data, color, fillColor }) {
         )}
       </svg>
       {data.length < 2 && (
-        <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>Collecting data…</p>
+        <p style={{ margin: 0, fontSize: '0.75rem', color: '#6b7280' }}>Collecting data…</p>
       )}
     </div>
   )
@@ -472,19 +474,25 @@ function EfficiencyGauge({ produced, consumed }) {
   const angle = startAngle + sweep * ratio
   const trackPath = describeArc(cx, cy, r, startAngle, startAngle + sweep)
   const fillPath = ratio > 0 ? describeArc(cx, cy, r, startAngle, angle) : null
-  const color = pct >= 80 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626'
+  const color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#fbbf24' : '#dc2626'
   const label = pct >= 80 ? 'Healthy' : pct >= 50 ? 'Moderate' : 'Low'
 
   return (
     <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem' }}>
+      <div style={{
+        fontFamily: "'Bebas Neue', sans-serif",
+        fontSize: '1rem',
+        letterSpacing: '0.06em',
+        color: 'rgba(255,255,255,0.5)',
+        marginBottom: '0.25rem',
+      }}>
         ⚡ Processing Efficiency
       </div>
       <svg width={140} height={105} viewBox="0 0 140 105">
-        <path d={trackPath} fill="none" stroke="#e2e8f0" strokeWidth="10" strokeLinecap="round" />
+        <path d={trackPath} fill="none" stroke="#1f2937" strokeWidth="10" strokeLinecap="round" />
         {fillPath && <path d={fillPath} fill="none" stroke={color} strokeWidth="10" strokeLinecap="round" />}
         <text x={cx} y={cy + 6} textAnchor="middle" fontSize="20" fontWeight="800" fill={color}>{pct}%</text>
-        <text x={cx} y={cy + 22} textAnchor="middle" fontSize="9" fill="#94a3b8">{label}</text>
+        <text x={cx} y={cy + 22} textAnchor="middle" fontSize="9" fill="#6b7280">{label}</text>
       </svg>
     </div>
   )
@@ -498,12 +506,18 @@ function ThroughputGauge({ history }) {
 
   return (
     <div>
-      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.75rem' }}>
+      <div style={{
+        fontFamily: "'Bebas Neue', sans-serif",
+        fontSize: '1rem',
+        letterSpacing: '0.06em',
+        color: 'rgba(255,255,255,0.5)',
+        marginBottom: '0.75rem',
+      }}>
         📈 Throughput (30s avg)
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-        <ThroughputBar label="📨 Produced" value={avgProduced} color="#16a34a" perMin={perMin(avgProduced)} />
-        <ThroughputBar label="✅ Consumed" value={avgConsumed} color="#2563eb" perMin={perMin(avgConsumed)} />
+        <ThroughputBar label="📨 Produced" value={avgProduced} color="#22c55e" perMin={perMin(avgProduced)} />
+        <ThroughputBar label="✅ Consumed" value={avgConsumed} color="#60a5fa" perMin={perMin(avgConsumed)} />
       </div>
     </div>
   )
@@ -515,10 +529,10 @@ function ThroughputBar({ label, value, color, perMin }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.82rem' }}>
-        <span style={{ color: '#374151', fontWeight: 500 }}>{label}</span>
+        <span style={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>{label}</span>
         <span style={{ color, fontWeight: 700 }}>{perMin}/min</span>
       </div>
-      <div style={{ height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
+      <div style={{ height: 8, borderRadius: 4, background: '#1f2937', overflow: 'hidden' }}>
         <div style={{
           height: '100%', width: `${pct}%`, borderRadius: 4,
           background: color, transition: 'width 0.5s ease',

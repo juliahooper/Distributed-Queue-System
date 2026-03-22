@@ -4,8 +4,8 @@
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: #f1f5f9;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #111827;
   color: #1e293b;
   min-height: 100vh;
 }
@@ -21,6 +21,11 @@ a {
 
 a:hover {
   text-decoration: underline;
+}
+
+h1, h2, h3 {
+  font-family: 'Bebas Neue', 'Inter', sans-serif;
+  letter-spacing: 0.04em;
 }
 
 @keyframes pulse-red {

@@ -5,46 +5,58 @@ import Monitor from './views/Monitor'
 
 function App() {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#f1f5f9' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#111827' }}>
+
       {/* Top bar */}
       <header style={{
-        background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
-        padding: '0 1.5rem',
-        boxShadow: '0 4px 20px rgba(220,38,38,0.35)',
+        background: 'linear-gradient(135deg, #7f1d1d 0%, #991b1b 40%, #dc2626 100%)',
+        padding: '0 2rem',
+        boxShadow: '0 4px 30px rgba(220,38,38,0.5)',
         display: 'flex',
         alignItems: 'center',
         gap: '1rem',
-        minHeight: 64,
+        minHeight: 68,
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
       }}>
-        <span style={{ fontSize: '1.6rem' }}>🏥</span>
+        <span style={{ fontSize: '1.8rem', filter: 'drop-shadow(0 0 8px rgba(255,255,255,0.3))' }}>🏥</span>
         <div>
-          <div style={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '0.02em' }}>
+          <div style={{
+            color: '#fff',
+            fontFamily: "'Bebas Neue', sans-serif",
+            fontSize: '1.7rem',
+            letterSpacing: '0.08em',
+            textShadow: '0 0 20px rgba(255,255,255,0.3)',
+          }}>
             City ER — Patient Queue
           </div>
-          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.72rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             Emergency Department Management System
           </div>
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{
-            width: 8, height: 8, borderRadius: '50%',
+            width: 9, height: 9, borderRadius: '50%',
             background: '#4ade80',
             display: 'inline-block',
-            boxShadow: '0 0 6px #4ade80',
+            boxShadow: '0 0 8px #4ade80, 0 0 16px #4ade8066',
           }} />
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.8rem' }}>System online</span>
+          <span style={{
+            color: 'rgba(255,255,255,0.85)',
+            fontSize: '0.8rem',
+            fontFamily: "'Bebas Neue', sans-serif",
+            letterSpacing: '0.06em',
+          }}>System Online</span>
         </div>
       </header>
 
       {/* Nav */}
       <nav style={{
-        background: '#fff',
-        padding: '0 1.5rem',
-        borderBottom: '1px solid #e2e8f0',
+        background: '#0d1117',
+        padding: '0 2rem',
         display: 'flex',
-        gap: '0',
         alignItems: 'stretch',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        borderBottom: '1px solid #1f2937',
+        boxShadow: '0 4px 20px rgba(220,38,38,0.2)',
       }}>
         {[
           { to: '/', label: '📋 Reception', end: true },
@@ -56,14 +68,17 @@ function App() {
             to={to}
             end={end}
             style={({ isActive }) => ({
-              padding: '0.9rem 1.25rem',
-              color: isActive ? '#dc2626' : '#64748b',
-              fontWeight: isActive ? 700 : 400,
-              fontSize: '0.9rem',
+              padding: '0.85rem 1.5rem',
+              color: isActive ? '#fff' : '#6b7280',
+              fontFamily: "'Bebas Neue', sans-serif",
+              fontSize: '1.1rem',
+              letterSpacing: '0.06em',
               borderBottom: isActive ? '3px solid #dc2626' : '3px solid transparent',
+              boxShadow: isActive ? 'inset 0 -3px 12px rgba(220,38,38,0.3)' : 'none',
               textDecoration: 'none',
               transition: 'all 0.15s',
               whiteSpace: 'nowrap',
+              background: isActive ? 'rgba(220,38,38,0.07)' : 'transparent',
             })}
           >
             {label}
@@ -80,12 +95,14 @@ function App() {
       </main>
 
       <footer style={{
-        background: '#fff',
-        borderTop: '1px solid #e2e8f0',
-        padding: '0.75rem 1.5rem',
+        background: '#0d1117',
+        borderTop: '1px solid #1f2937',
+        padding: '0.75rem 2rem',
         textAlign: 'center',
-        fontSize: '0.75rem',
-        color: '#94a3b8',
+        fontFamily: "'Bebas Neue', sans-serif",
+        fontSize: '0.85rem',
+        letterSpacing: '0.06em',
+        color: '#374151',
       }}>
         City ER Queue System — Distributed Message Broker
       </footer>
