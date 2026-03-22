@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getMetrics, getDeadLetterCount, deadLetterRetry, getActivityLog } from '../api'
+import { getMetrics, getDeadLetterCount, deadLetterRetry, getDeadLetterList, deleteDeadLetter, getActivityLog } from '../api'
 
 const POLL_INTERVAL_MS = 5000
 const ACTIVITY_LIMIT = 50
@@ -7,10 +7,12 @@ const ACTIVITY_LIMIT = 50
 export default function Monitor() {
   const [metrics, setMetrics] = useState(null)
   const [dlqCount, setDlqCount] = useState(null)
+  const [dlqEntries, setDlqEntries] = useState([])
   const [activityLog, setActivityLog] = useState([])
   const [eventFilter, setEventFilter] = useState('')
   const [error, setError] = useState(null)
   const [retrying, setRetrying] = useState(false)
+  const [discarding, setDiscarding] = useState(null)
 
   const fetchMetrics = useCallback(async () => {
     try {
@@ -31,6 +33,15 @@ export default function Monitor() {
     }
   }, [])
 
+  const fetchDlqEntries = useCallback(async () => {
+    try {
+      const res = await getDeadLetterList()
+      setDlqEntries(res?.entries ?? [])
+    } catch {
+      setDlqEntries([])
+    }
+  }, [])
+
   const fetchActivityLog = useCallback(async () => {
     try {
       const res = await getActivityLog({
@@ -47,26 +58,42 @@ export default function Monitor() {
   useEffect(() => {
     fetchMetrics()
     fetchDlqCount()
+    fetchDlqEntries()
     fetchActivityLog()
     const id = setInterval(() => {
       fetchMetrics()
       fetchDlqCount()
+      fetchDlqEntries()
       fetchActivityLog()
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [fetchMetrics, fetchDlqCount, fetchActivityLog])
+  }, [fetchMetrics, fetchDlqCount, fetchDlqEntries, fetchActivityLog])
 
   async function handleRetry() {
     setRetrying(true)
     try {
       await deadLetterRetry()
       await fetchDlqCount()
+      await fetchDlqEntries()
       await fetchMetrics()
       await fetchActivityLog()
     } catch (err) {
       setError(err.message || 'Retry failed')
     } finally {
       setRetrying(false)
+    }
+  }
+
+  async function handleDiscard(messageID) {
+    setDiscarding(messageID)
+    try {
+      await deleteDeadLetter(messageID)
+      await fetchDlqCount()
+      await fetchDlqEntries()
+    } catch (err) {
+      setError(err.message || 'Failed to discard message')
+    } finally {
+      setDiscarding(null)
     }
   }
 
@@ -104,13 +131,14 @@ export default function Monitor() {
           background: '#7f1d1d',
           border: '1px solid #991b1b',
         }}>
-          <h2 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>
-            Dead letter queue has {(dlqCount ?? metrics?.dead_letter_count) ?? 0} items
+          <h2 style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>
+            Dead letter queue — {(dlqCount ?? metrics?.dead_letter_count) ?? 0} items
           </h2>
           <button
             onClick={handleRetry}
             disabled={retrying}
             style={{
+              marginBottom: '1rem',
               padding: '0.5rem 1rem',
               fontSize: '0.9rem',
               border: 'none',
@@ -123,6 +151,52 @@ export default function Monitor() {
           >
             {retrying ? 'Retrying…' : 'Retry all'}
           </button>
+          {dlqEntries.length > 0 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #991b1b' }}>
+                  <th style={{ textAlign: 'left', padding: '0.4rem', color: '#fca5a5' }}>Message ID</th>
+                  <th style={{ textAlign: 'left', padding: '0.4rem', color: '#fca5a5' }}>Topic</th>
+                  <th style={{ textAlign: 'left', padding: '0.4rem', color: '#fca5a5' }}>Retries</th>
+                  <th style={{ textAlign: 'left', padding: '0.4rem', color: '#fca5a5' }}>Failed at</th>
+                  <th style={{ textAlign: 'left', padding: '0.4rem', color: '#fca5a5' }}>Reason</th>
+                  <th style={{ padding: '0.4rem' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {dlqEntries.map((e) => (
+                  <tr key={e.message_id} style={{ borderBottom: '1px solid #991b1b' }}>
+                    <td style={{ padding: '0.4rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                      {e.message_id.slice(0, 8)}…
+                    </td>
+                    <td style={{ padding: '0.4rem' }}>{e.topic}</td>
+                    <td style={{ padding: '0.4rem' }}>{e.retry_count}</td>
+                    <td style={{ padding: '0.4rem' }}>{formatTime(e.failed_at)}</td>
+                    <td style={{ padding: '0.4rem' }}>{e.reason}</td>
+                    <td style={{ padding: '0.4rem' }}>
+                      <button
+                        onClick={() => handleDiscard(e.message_id)}
+                        disabled={discarding === e.message_id}
+                        title="Discard this poison message permanently"
+                        style={{
+                          padding: '0.25rem 0.6rem',
+                          fontSize: '0.8rem',
+                          border: 'none',
+                          borderRadius: 4,
+                          background: '#b91c1c',
+                          color: '#fff',
+                          cursor: discarding === e.message_id ? 'not-allowed' : 'pointer',
+                          opacity: discarding === e.message_id ? 0.6 : 1,
+                        }}
+                      >
+                        {discarding === e.message_id ? '…' : 'Discard'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
       )}
 
@@ -155,6 +229,7 @@ export default function Monitor() {
             <option value="requeue">Requeue</option>
             <option value="dlq">Dead letter</option>
             <option value="dlq_retry">DLQ retry</option>
+            <option value="dlq_deleted">DLQ discarded</option>
           </select>
         </div>
         <div style={{

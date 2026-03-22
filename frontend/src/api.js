@@ -139,6 +139,22 @@ export async function deadLetterRetry() {
 }
 
 /**
+ * List all messages in the dead letter queue.
+ * @returns {Promise<{ entries: Array }>}
+ */
+export async function getDeadLetterList() {
+  return request('/dead-letter/list')
+}
+
+/**
+ * Discard a specific poison message from the dead letter queue by ID.
+ * @param {string} id - message_id
+ */
+export async function deleteDeadLetter(id) {
+  return request(`/dead-letter/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/**
  * Get activity log entries.
  * @param {Object} opts - { limit, offset, event_type }
  * @returns {Promise<{ entries: Array }>}

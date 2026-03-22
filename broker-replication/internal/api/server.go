@@ -53,6 +53,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 		mux.HandleFunc("/metrics", cors(s.handleMetrics(ext)))
 		mux.HandleFunc("/dead-letter/count", cors(s.handleDeadLetterCount(ext)))
 		mux.HandleFunc("/dead-letter/retry", cors(s.handleDeadLetterRetry(ext)))
+		mux.HandleFunc("/dead-letter/list", cors(s.handleDeadLetterList(ext)))
+		mux.HandleFunc("/dead-letter/delete", cors(s.handleDeadLetterDelete(ext)))
 		mux.HandleFunc("/activity-log", cors(s.handleActivityLog(ext)))
 	}
 }
@@ -61,7 +63,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 func cors(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Producer-Id, X-Consumer-Id")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -267,6 +269,47 @@ func (s *Server) handleDeadLetterRetry(ext service.BrokerExt) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]int{"retried": retried, "failed": failed})
+	}
+}
+
+// handleDeadLetterList returns a handler for GET /dead-letter/list.
+func (s *Server) handleDeadLetterList(ext service.BrokerExt) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		entries, err := ext.DeadLetterList(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if entries == nil {
+			entries = []service.DeadLetterEntry{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"entries": entries})
+	}
+}
+
+// handleDeadLetterDelete returns a handler for DELETE /dead-letter/delete?id=X.
+func (s *Server) handleDeadLetterDelete(ext service.BrokerExt) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "bad request: id query required", http.StatusBadRequest)
+			return
+		}
+		if err := ext.DeadLetterDelete(r.Context(), id); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	}
 }
 

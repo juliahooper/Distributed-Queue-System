@@ -120,6 +120,32 @@ func (b *PostgresBroker) DeadLetterRetry(ctx context.Context) (retried, failed i
 	return b.store.DeadLetterRetry(ctx)
 }
 
+// DeadLetterList returns all messages in the dead letter table.
+func (b *PostgresBroker) DeadLetterList(ctx context.Context) ([]DeadLetterEntry, error) {
+	entries, err := b.store.ListDeadLetter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DeadLetterEntry, len(entries))
+	for i, e := range entries {
+		out[i] = DeadLetterEntry{
+			MessageID:  e.MessageID,
+			Topic:      e.Topic,
+			Body:       e.Body,
+			ProducerID: e.ProducerID,
+			FailedAt:   e.FailedAt,
+			Reason:     e.Reason,
+			RetryCount: e.RetryCount,
+		}
+	}
+	return out, nil
+}
+
+// DeadLetterDelete removes a single poison message from the dead letter table by ID.
+func (b *PostgresBroker) DeadLetterDelete(ctx context.Context, messageID string) error {
+	return b.store.DeleteDeadLetter(ctx, messageID)
+}
+
 // GetActivityLog returns activity log entries.
 func (b *PostgresBroker) GetActivityLog(ctx context.Context, limit, offset int, eventType string) ([]ActivityEntry, error) {
 	entries, err := b.store.GetActivityLog(ctx, limit, offset, eventType)

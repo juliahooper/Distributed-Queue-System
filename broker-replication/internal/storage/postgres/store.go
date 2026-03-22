@@ -318,6 +318,52 @@ func (s *Store) DeadLetterCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// DeadLetterEntry is a single entry in the dead letter table.
+type DeadLetterEntry struct {
+	MessageID  string    `json:"message_id"`
+	Topic      string    `json:"topic"`
+	Body       []byte    `json:"body"`
+	ProducerID string    `json:"producer_id"`
+	FailedAt   time.Time `json:"failed_at"`
+	Reason     string    `json:"reason"`
+	RetryCount int       `json:"retry_count"`
+}
+
+// ListDeadLetter returns all messages in the dead letter table.
+func (s *Store) ListDeadLetter(ctx context.Context) ([]DeadLetterEntry, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT message_id, topic, body, COALESCE(producer_id, ''), failed_at, reason, retry_count
+		FROM dead_letter
+		ORDER BY failed_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DeadLetterEntry
+	for rows.Next() {
+		var e DeadLetterEntry
+		if err := rows.Scan(&e.MessageID, &e.Topic, &e.Body, &e.ProducerID, &e.FailedAt, &e.Reason, &e.RetryCount); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// DeleteDeadLetter removes a single message from the dead letter table by message_id.
+func (s *Store) DeleteDeadLetter(ctx context.Context, messageID string) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM dead_letter WHERE message_id = $1`, messageID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("message %s not found in dead letter queue", messageID)
+	}
+	_ = s.logActivity(ctx, "dlq_deleted", messageID, "", "", "", map[string]interface{}{"reason": "manually_discarded"})
+	return nil
+}
+
 // DeadLetterRetry re-publishes all DLQ messages to the queue and removes them from dead_letter.
 func (s *Store) DeadLetterRetry(ctx context.Context) (retried, failed int, err error) {
 	rows, err := s.pool.Query(ctx, `

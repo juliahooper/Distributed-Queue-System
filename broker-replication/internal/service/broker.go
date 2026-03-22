@@ -52,11 +52,24 @@ type ActivityEntry struct {
     Details    map[string]interface{} `json:"details,omitempty"`
 }
 
+// DeadLetterEntry is a DLQ message returned by DeadLetterList.
+type DeadLetterEntry struct {
+    MessageID  string      `json:"message_id"`
+    Topic      string      `json:"topic"`
+    Body       []byte      `json:"body"`
+    ProducerID string      `json:"producer_id"`
+    FailedAt   interface{} `json:"failed_at"`
+    Reason     string      `json:"reason"`
+    RetryCount int         `json:"retry_count"`
+}
+
 // BrokerExt is an optional interface for brokers with metrics, DLQ, and activity log (PostgreSQL backend).
 type BrokerExt interface {
     GetMetrics(ctx context.Context) (map[string]interface{}, error)
     DeadLetterCount(ctx context.Context) (int, error)
     DeadLetterRetry(ctx context.Context) (retried, failed int, err error)
+    DeadLetterList(ctx context.Context) ([]DeadLetterEntry, error)
+    DeadLetterDelete(ctx context.Context, messageID string) error
     GetActivityLog(ctx context.Context, limit, offset int, eventType string) ([]ActivityEntry, error)
 }
 
