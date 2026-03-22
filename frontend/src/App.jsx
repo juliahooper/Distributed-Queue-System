@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
 import Reception from './views/Reception'
 import Dashboard from './views/Dashboard'
+import Monitor from './views/Monitor'
 
 function App() {
   return (
@@ -31,11 +32,21 @@ function App() {
         >
           View queue
         </NavLink>
+        <NavLink
+          to="/monitor"
+          style={({ isActive }) => ({
+            color: isActive ? '#f8fafc' : '#94a3b8',
+            fontWeight: isActive ? 600 : 400,
+          })}
+        >
+          Monitor
+        </NavLink>
       </nav>
       <main style={{ flex: 1, padding: '1.5rem' }}>
         <Routes>
           <Route path="/" element={<Reception />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/monitor" element={<Monitor />} />
         </Routes>
       </main>
     </div>

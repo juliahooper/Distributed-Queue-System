@@ -22,8 +22,9 @@ type ConsumedMessage struct {
 }
 
 type HTTPConsumer struct {
-	baseURL string
-	client  *http.Client
+	baseURL    string
+	client     *http.Client
+	consumerID string
 }
 
 func NewHTTPConsumer(baseURL string, httpClient *http.Client) *HTTPConsumer {
@@ -40,6 +41,12 @@ func NewHTTPConsumer(baseURL string, httpClient *http.Client) *HTTPConsumer {
 	}
 }
 
+// WithConsumerID sets the X-Consumer-Id header for audit.
+func (c *HTTPConsumer) WithConsumerID(id string) *HTTPConsumer {
+	c.consumerID = id
+	return c
+}
+
 func (c *HTTPConsumer) Consume(ctx context.Context, topic string) (*ConsumedMessage, error) {
 	if strings.TrimSpace(topic) == "" {
 		return nil, ErrInvalidTopic
@@ -50,6 +57,9 @@ func (c *HTTPConsumer) Consume(ctx context.Context, topic string) (*ConsumedMess
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build consume request: %w", err)
+	}
+	if c.consumerID != "" {
+		req.Header.Set("X-Consumer-Id", c.consumerID)
 	}
 
 	resp, err := c.client.Do(req)
@@ -97,6 +107,9 @@ func (c *HTTPConsumer) Ack(ctx context.Context, id string) error {
 		return fmt.Errorf("build ack request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.consumerID != "" {
+		req.Header.Set("X-Consumer-Id", c.consumerID)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

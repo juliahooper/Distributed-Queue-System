@@ -1,19 +1,47 @@
-// Package er provides file-based persistence for the ER queue.
-// Queue state is stored in data/er-queue.json. Called patients are removed.
+// Package er provides persistence for the ER queue.
+// Supports: LogCore (internal/storage), local file, or Azure Blob for shared storage.
 
 package er
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/distributed-queue-system/broker-replication/internal/storage"
 )
 
-const defaultQueueFile = "data/er-queue.json"
+const (
+	defaultQueueFile = "data/er-queue.json"
+	erQueueLogTopic  = "er-queue"
+)
 
-// persistedState is the JSON format written to disk.
+// LogCorePersister uses the append-only LogCore. Each save appends a snapshot; load reads the latest.
+func NewLogCorePersister(lc *storage.LogCore) Persister {
+	return &logCorePersister{core: lc}
+}
+
+type logCorePersister struct {
+	core *storage.LogCore
+}
+
+func (l *logCorePersister) Load(ctx context.Context) ([]byte, error) {
+	offset := l.core.MaxOffset(erQueueLogTopic)
+	if offset == 0 {
+		return nil, nil
+	}
+	return l.core.Read(ctx, erQueueLogTopic, offset)
+}
+
+func (l *logCorePersister) Save(ctx context.Context, data []byte) error {
+	_, err := l.core.Append(ctx, erQueueLogTopic, data)
+	return err
+}
+
+// persistedState is the JSON format written to storage.
 type persistedState struct {
 	Items          []persistedEntry `json:"items"`
 	NextPatientNum int             `json:"nextPatientNum"`
@@ -26,45 +54,84 @@ type persistedEntry struct {
 	AddedAt   time.Time `json:"addedAt"`
 }
 
-// LoadQueue loads the ER queue from storage. Creates a new queue if file doesn't exist.
-func LoadQueue(path string) (*Queue, error) {
-	if path == "" {
-		path = defaultQueueFile
-	}
-	data, err := os.ReadFile(path)
+// Persister loads and saves ER queue state. Implementations: file, Azure Blob.
+type Persister interface {
+	Load(ctx context.Context) ([]byte, error)
+	Save(ctx context.Context, data []byte) error
+}
+
+// filePersister uses a local JSON file.
+type filePersister struct {
+	path string
+}
+
+func (f *filePersister) Load(ctx context.Context) ([]byte, error) {
+	data, err := os.ReadFile(f.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			q := NewQueue()
-			q.persistPath = path
-			return q, nil
+			return nil, nil
 		}
-		return nil, fmt.Errorf("read queue file: %w", err)
+		return nil, err
 	}
 	if len(data) == 0 {
-		q := NewQueue()
-		q.persistPath = path
+		return nil, nil
+	}
+	return data, nil
+}
+
+func (f *filePersister) Save(ctx context.Context, data []byte) error {
+	dir := filepath.Dir(f.path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(f.path, data, 0644)
+}
+
+// LoadQueue loads the ER queue from storage.
+// Uses persister if set (LogCore or Azure Blob); otherwise local file.
+func LoadQueue(path string, persister Persister) (*Queue, error) {
+	var p Persister
+	if persister != nil {
+		p = persister
+	} else {
+		if path == "" {
+			path = defaultQueueFile
+		}
+		p = &filePersister{path: path}
+	}
+
+	ctx := context.Background()
+	data, err := p.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load ER queue: %w", err)
+	}
+
+	q := NewQueue()
+	q.persister = p
+
+	if len(data) == 0 {
 		return q, nil
 	}
+
 	var state persistedState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("parse queue file: %w", err)
+		return nil, fmt.Errorf("parse ER queue: %w", err)
 	}
-	q := NewQueue()
+
 	q.nextPatientNum = state.NextPatientNum
 	q.items = make([]entryWithTime, len(state.Items))
-	for i, p := range state.Items {
+	for i, e := range state.Items {
 		q.items[i] = entryWithTime{
-			Entry:  Entry{ID: p.ID, PatientID: p.PatientID, Urgency: p.Urgency},
-			addedAt: p.AddedAt,
+			Entry:   Entry{ID: e.ID, PatientID: e.PatientID, Urgency: e.Urgency},
+			addedAt: e.AddedAt,
 		}
 	}
-	q.persistPath = path
 	return q, nil
 }
 
-// Save persists the current queue state to disk. Called patients are not in the queue, so they are omitted.
+// Save persists the current queue state. Called patients are not in the queue, so they are omitted.
 func (q *Queue) Save() error {
-	if q.persistPath == "" {
+	if q.persister == nil {
 		return nil
 	}
 	q.mu.Lock()
@@ -82,16 +149,12 @@ func (q *Queue) Save() error {
 	}
 	q.mu.Unlock()
 
-	dir := filepath.Dir(q.persistPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("create data dir: %w", err)
-	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal queue: %w", err)
+		return fmt.Errorf("marshal ER queue: %w", err)
 	}
-	if err := os.WriteFile(q.persistPath, data, 0644); err != nil {
-		return fmt.Errorf("write queue file: %w", err)
+	if err := q.persister.Save(context.Background(), data); err != nil {
+		return fmt.Errorf("save ER queue: %w", err)
 	}
 	return nil
 }
