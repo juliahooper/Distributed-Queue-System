@@ -76,10 +76,7 @@ func cors(next http.HandlerFunc) http.HandlerFunc {
 // Run starts the HTTP server and blocks until it exits.
 func (s *Server) Run(addr string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/publish", cors(s.handlePublish))
-	mux.HandleFunc("/consume", cors(s.handleConsume))
-	mux.HandleFunc("/peek", cors(s.handlePeek))
-	mux.HandleFunc("/ack", cors(s.handleAck))
+	s.Register(mux)
 	return http.ListenAndServe(addr, mux)
 }
 
