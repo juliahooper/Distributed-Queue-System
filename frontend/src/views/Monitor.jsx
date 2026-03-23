@@ -39,7 +39,7 @@ export default function Monitor() {
       const m = await getMetrics()
       setMetrics(m)
       setMetricsHistory(prev => {
-        const prev_ = prevMetrics.current
+          const prev_ = prevMetrics.current
         const producedRate = prev_ ? Math.max(0, m.messages_produced_total - prev_.messages_produced_total) : 0
         const consumedRate = prev_ ? Math.max(0, m.messages_consumed_total - prev_.messages_consumed_total) : 0
         prevMetrics.current = m
@@ -198,6 +198,7 @@ export default function Monitor() {
           <ThroughputGauge history={metricsHistory} />
         </div>
       </section>
+
 
       {/* Dead letter queue */}
       <section style={{
@@ -479,13 +480,7 @@ function EfficiencyGauge({ produced, consumed }) {
 
   return (
     <div style={{ textAlign: 'center' }}>
-      <div style={{
-        fontFamily: "'Bebas Neue', sans-serif",
-        fontSize: '1rem',
-        letterSpacing: '0.06em',
-        color: 'rgba(255,255,255,0.5)',
-        marginBottom: '0.25rem',
-      }}>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1rem', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.5)', marginBottom: '0.25rem' }}>
         ⚡ Processing Efficiency
       </div>
       <svg width={140} height={105} viewBox="0 0 140 105">
@@ -506,13 +501,7 @@ function ThroughputGauge({ history }) {
 
   return (
     <div>
-      <div style={{
-        fontFamily: "'Bebas Neue', sans-serif",
-        fontSize: '1rem',
-        letterSpacing: '0.06em',
-        color: 'rgba(255,255,255,0.5)',
-        marginBottom: '0.75rem',
-      }}>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: '1rem', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.5)', marginBottom: '0.75rem' }}>
         📈 Throughput (30s avg)
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
@@ -533,10 +522,7 @@ function ThroughputBar({ label, value, color, perMin }) {
         <span style={{ color, fontWeight: 700 }}>{perMin}/min</span>
       </div>
       <div style={{ height: 8, borderRadius: 4, background: '#1f2937', overflow: 'hidden' }}>
-        <div style={{
-          height: '100%', width: `${pct}%`, borderRadius: 4,
-          background: color, transition: 'width 0.5s ease',
-        }} />
+        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 4, background: color, transition: 'width 0.5s ease' }} />
       </div>
     </div>
   )
