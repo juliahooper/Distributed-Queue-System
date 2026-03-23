@@ -38,11 +38,11 @@ export default function Monitor() {
     try {
       const m = await getMetrics()
       setMetrics(m)
+      const prev_ = prevMetrics.current
+      const producedRate = prev_ ? Math.max(0, m.messages_produced_total - prev_.messages_produced_total) : 0
+      const consumedRate = prev_ ? Math.max(0, m.messages_consumed_total - prev_.messages_consumed_total) : 0
+      prevMetrics.current = m
       setMetricsHistory(prev => {
-          const prev_ = prevMetrics.current
-        const producedRate = prev_ ? Math.max(0, m.messages_produced_total - prev_.messages_produced_total) : 0
-        const consumedRate = prev_ ? Math.max(0, m.messages_consumed_total - prev_.messages_consumed_total) : 0
-        prevMetrics.current = m
         const entry = {
           t: Date.now(),
           queueDepth: m.queue_depth ?? 0,
@@ -178,25 +178,14 @@ export default function Monitor() {
       <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
         <ChartCard label="📋 Queue depth"         data={metricsHistory.map(h => h.queueDepth)}   color="#dc2626" fillColor="rgba(220,38,38,0.15)" />
         <ChartCard label="⏳ In-flight (pending)"  data={metricsHistory.map(h => h.pending)}      color="#fbbf24" fillColor="rgba(251,191,36,0.12)" />
-        <ChartCard label="📨 Produced / interval" data={metricsHistory.map(h => h.producedRate)} color="#22c55e" fillColor="rgba(34,197,94,0.12)" />
-        <ChartCard label="✅ Consumed / interval" data={metricsHistory.map(h => h.consumedRate)} color="#60a5fa" fillColor="rgba(96,165,250,0.12)" />
       </section>
 
       {/* Efficiency + throughput */}
-      <section style={{
-        ...card,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '3rem',
-        flexWrap: 'wrap',
-      }}>
+      <section style={{ ...card, display: 'flex', justifyContent: 'center' }}>
         <EfficiencyGauge
           produced={metrics?.messages_produced_total ?? 0}
           consumed={metrics?.messages_consumed_total ?? 0}
         />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <ThroughputGauge history={metricsHistory} />
-        </div>
       </section>
 
 
